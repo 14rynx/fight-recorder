@@ -1,0 +1,2 @@
+obsws-python
+python-dotenv
