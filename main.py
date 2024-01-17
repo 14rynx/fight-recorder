@@ -1,6 +1,7 @@
 import datetime
 import os
 import re
+import threading
 import time
 import obsws_python as obs
 from dotenv import load_dotenv
@@ -38,6 +39,7 @@ for regex_name, value in regexes.items():
 class TimeoutRecording:
     def __init__(self, host, port, password, timeout=60):
         self.ws = obs.ReqClient(host=host, port=port, password=password, timeout=3)
+        self.start_time = None
         self.end_time = None
         self.timeout = timeout
 
@@ -55,12 +57,17 @@ class TimeoutRecording:
     def replay_path(self):
         return self.ws.get_last_replay_buffer_replay().saved_replay_path
 
+    @property
+    def output_name(self):
+        return self.start_time.strftime("%Y%m%d-%H%M%S")
+
     def start(self):
         if self.end_time is None:
             try:
                 self.ws.start_record()
                 self.ws.save_replay_buffer()
                 self.end_time = datetime.datetime.now() + datetime.timedelta(seconds=self.timeout)
+                self.start_time = datetime.datetime.now()
             except Exception as e:
                 print(f"Error starting recording: {e}")
             else:
@@ -77,6 +84,22 @@ class TimeoutRecording:
     def set_timeout(self):
         if self.end_time is not None:
             self.end_time = datetime.datetime.now() + datetime.timedelta(seconds=60)
+
+
+def process_video_clips(replay_path, recording_path, output_path):
+    # Load video clips
+    replay_buffer_clip = VideoFileClip(replay_path)
+    recording_clip = VideoFileClip(recording_path)
+
+    # Concatenate video clips
+    combined_clip = concatenate_videoclips([replay_buffer_clip, recording_clip])
+
+    combined_clip.write_videofile(output_path, codec="libx264", audio_codec="aac", threads=8)
+
+    # Close the video clips
+    replay_buffer_clip.close()
+    recording_clip.close()
+    print(f"Saved clip under {output_path}")
 
 
 def check_log_content(log_content):
@@ -147,24 +170,17 @@ def monitor_directory(directory_path, timeout_recorder, concatenated_output_dir=
 
             print("Ended recording")
             if concatenated_output_dir is not None and concatenated_output_dir != "None":
-                # Load video clips
-                replay_buffer_clip = VideoFileClip(timeout_recorder.replay_path)
-                recording_clip = VideoFileClip(timeout_recorder.recording_path)
-
-                # Concatenate video clips
-                combined_clip = concatenate_videoclips([replay_buffer_clip, recording_clip])
-
-                # Write the combined video to a file
-                output_path = f"{concatenated_output_dir}\\Clip_{n}.mkv"
-                print(concatenated_output_dir)
-
-                combined_clip.write_videofile(output_path, codec="libx264", audio_codec="aac")
+                # Run the processing function in a separate thread
+                video_processing_thread = threading.Thread(
+                    target=process_video_clips,
+                    args=(
+                        timeout_recorder.replay_path,
+                        timeout_recorder.recording_path,
+                        f"{concatenated_output_dir}\\{timeout_recorder.output_name}.mkv"
+                    )
+                )
+                video_processing_thread.start()
                 n += 1
-
-                # Close the video clips
-                replay_buffer_clip.close()
-                recording_clip.close()
-                print(f"Saved clip under {output_path}")
 
             else:
                 print(f"Output files: {timeout_recorder.replay_path} {timeout_recorder.recording_path}")
