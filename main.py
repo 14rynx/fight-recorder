@@ -4,6 +4,7 @@ import re
 import time
 import obsws_python as obs
 from dotenv import load_dotenv
+from moviepy.editor import VideoFileClip, concatenate_videoclips
 
 load_dotenv()
 
@@ -35,35 +36,51 @@ for regex_name, value in regexes.items():
 
 
 class TimeoutRecording:
-    def __init__(self, host, port, password):
+    def __init__(self, host, port, password, timeout=60):
         self.ws = obs.ReqClient(host=host, port=port, password=password, timeout=3)
-        self.timeout = None
+        self.end_time = None
+        self.timeout = timeout
+
+        # Register callback to get information on the current recording path
+        self.cl = obs.EventClient(host=host, port=port, password=password)
+        self.cl.callback.register(self.on_record_state_changed)
+        self.recording_path = None
+
+    def on_record_state_changed(self, data):
+        """Callback function, do not rename!"""
+        if data.output_path is not None:
+            self.recording_path = data.output_path
+
+    @property
+    def replay_path(self):
+        return self.ws.get_last_replay_buffer_replay().saved_replay_path
 
     def start(self):
-        if self.timeout is None:
+        if self.end_time is None:
             try:
                 self.ws.start_record()
                 self.ws.save_replay_buffer()
-                print(self.ws.get_last_replay_buffer_replay())
-                self.timeout = datetime.datetime.now() + datetime.timedelta(seconds=60)
+                self.end_time = datetime.datetime.now() + datetime.timedelta(seconds=self.timeout)
             except Exception as e:
                 print(f"Error starting recording: {e}")
             else:
                 print("Started Recording")
 
     def check_timeout(self):
-        if self.timeout is not None and self.timeout < datetime.datetime.now():
+        if self.end_time is not None and self.end_time < datetime.datetime.now():
             self.ws.stop_record()
-            self.timeout = None
-            print("Ended Recording")
+            self.end_time = None
+            return True
+
+        return False
 
     def set_timeout(self):
-        if self.timeout is not None:
-            self.timeout = datetime.datetime.now() + datetime.timedelta(seconds=60)
+        if self.end_time is not None:
+            self.end_time = datetime.datetime.now() + datetime.timedelta(seconds=60)
 
 
 def check_log_content(log_content):
-    print(log_content)
+    """Check if there was something interesting in log content"""
     for regex_name, value in compiled_regexes.items():
         if len(extract(value, log_content)) > 0:
             return True
@@ -71,6 +88,7 @@ def check_log_content(log_content):
 
 
 def extract(regex, log_content):
+    """Extract interesting data from log content"""
     return_value = []
     group = regex.finditer(log_content)
 
@@ -87,7 +105,8 @@ def extract(regex, log_content):
 
 
 def read_log_file(file_path, last_position):
-    with open(file_path, 'r') as file:
+    """Incrementally read a log file based on a known last position and return new content."""
+    with open(file_path, 'r', encoding="utf8") as file:
         file.seek(last_position)
         new_content = file.read()
         new_position = file.tell()
@@ -95,16 +114,21 @@ def read_log_file(file_path, last_position):
     return new_content, new_position
 
 
-def monitor_directory(directory_path, timeout_recorder):
+def monitor_directory(directory_path, timeout_recorder, concatenated_output_dir=None):
+    """Monitor an eve log directory for log changes and make a recording if anything interesting happens"""
     observed_files = {}
 
-    # Skip existing files on startup
+    # Figure out current file state
     for file_name in os.listdir(directory_path):
         file_path = os.path.join(directory_path, file_name)
         observed_files[file_path] = os.path.getsize(file_path)
 
-    # Search for new files and read them slowly
+    print(f"Observing {directory_path}")
+
+    n = 0
+
     while True:
+        # Search for new files and read them
         for file_name in os.listdir(directory_path):
             file_path = os.path.join(directory_path, file_name)
 
@@ -118,7 +142,32 @@ def monitor_directory(directory_path, timeout_recorder):
 
                 observed_files[file_path] = new_position
 
-        timeout_recorder.check_timeout()
+        # Check if the recording has ended and display the file paths
+        if timeout_recorder.check_timeout():
+
+            print("Ended recording")
+            if concatenated_output_dir is not None and concatenated_output_dir != "None":
+                # Load video clips
+                replay_buffer_clip = VideoFileClip(timeout_recorder.replay_path)
+                recording_clip = VideoFileClip(timeout_recorder.recording_path)
+
+                # Concatenate video clips
+                combined_clip = concatenate_videoclips([replay_buffer_clip, recording_clip])
+
+                # Write the combined video to a file
+                output_path = f"{concatenated_output_dir}\\Clip_{n}.mkv"
+                print(concatenated_output_dir)
+
+                combined_clip.write_videofile(output_path, codec="libx264", audio_codec="aac")
+                n += 1
+
+                # Close the video clips
+                replay_buffer_clip.close()
+                recording_clip.close()
+                print(f"Saved clip under {output_path}")
+
+            else:
+                print(f"Output files: {timeout_recorder.replay_path} {timeout_recorder.recording_path}")
 
         time.sleep(1)  # Adjust the sleep interval as needed
 
@@ -127,10 +176,12 @@ if __name__ == "__main__":
     timeout_recorder = TimeoutRecording(
         host=os.environ["OBS_HOST"],
         port=int(os.environ["OBS_PORT"]),
-        password=os.environ["OBS_PASSWORD"]
+        password=os.environ["OBS_PASSWORD"],
+        timeout=int(os.environ["TIMEOUT"])
     )
 
     monitor_directory(
         directory_path=os.environ["LOG_DIRECTORY"],
-        timeout_recorder=timeout_recorder
+        timeout_recorder=timeout_recorder,
+        concatenated_output_dir=os.environ["CONCATENATED_OUTPUT"]
     )
