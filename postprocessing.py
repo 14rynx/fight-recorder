@@ -1,23 +1,30 @@
 import os
 import threading
+import time
 
 from moviepy.editor import VideoFileClip, concatenate_videoclips
 
 
 class PostProcessing:
-    def __init__(self, concatenate=True, delete=False):
+    def __init__(self, concatenate, delete, status_callback):
         self.concatenate = concatenate
         self.delete = delete
+        self.status_callback = status_callback
 
     def process(self, replay_path, recording_path, output_dir, output_name):
+        self.status_callback("processing_start")
 
         destination_replay = os.path.join(output_dir, f"{output_name}_replay.mkv")
         destination_recording = os.path.join(output_dir, f"{output_name}_recording.mkv")
         destination_concatenated = os.path.join(output_dir, f"{output_name}_concatenated.mkv")
 
-        # Move files
         os.rename(replay_path, destination_replay)
-        os.rename(recording_path, destination_recording)
+        while True:
+            try:
+                os.rename(recording_path, destination_recording)
+                break
+            except PermissionError:  # File in use by OBS
+                time.sleep(10)
 
         # Concatenate (and delete if needed)
         if self.concatenate:
@@ -27,13 +34,14 @@ class PostProcessing:
                     destination_replay,
                     destination_recording,
                     destination_concatenated,
-                    self.delete
+                    self.delete,
+                    self.status_callback
                 )
             )
             video_processing_thread.start()
 
 
-def process_video_clips(replay_path, recording_path, output_path, delete=False):
+def process_video_clips(replay_path, recording_path, output_path, delete, status_callback):
     # Load video clips
     replay_buffer_clip = VideoFileClip(replay_path)
     recording_clip = VideoFileClip(recording_path)
@@ -50,3 +58,5 @@ def process_video_clips(replay_path, recording_path, output_path, delete=False):
     if delete:
         os.remove(replay_path)
         os.remove(recording_path)
+
+    status_callback("processing_end")

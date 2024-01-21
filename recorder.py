@@ -28,7 +28,14 @@ class TimeoutRecording:
     def output_name(self):
         return self.start_time.strftime("%Y%m%d-%H%M%S")
 
-    def start(self):
+    def check_timeout(self):
+        if self.end_time is not None and self.end_time < datetime.datetime.now():
+            self.ws.stop_record()
+            self.end_time = None
+            return True
+        return False
+
+    def set_timeout(self):
         if self.end_time is None:
             try:
                 self.ws.start_record()
@@ -37,17 +44,8 @@ class TimeoutRecording:
                 self.start_time = datetime.datetime.now()
             except Exception as e:
                 print(f"Error starting recording: {e}")
-            else:
-                print("Started Recording")
-
-    def check_timeout(self):
-        if self.end_time is not None and self.end_time < datetime.datetime.now():
-            self.ws.stop_record()
-            self.end_time = None
+                raise e
             return True
-
-        return False
-
-    def set_timeout(self):
-        if self.end_time is not None:
+        else:
             self.end_time = datetime.datetime.now() + datetime.timedelta(seconds=60)
+            return False

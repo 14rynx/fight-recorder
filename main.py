@@ -9,7 +9,7 @@ from runner import run
 
 class SettingsApp:
     def __init__(self, root):
-        self.status = "init"
+        self.stati = ["Initializing"]
         self.stop_event = threading.Event()
         self.listener_thread = None
 
@@ -157,7 +157,7 @@ class SettingsApp:
         self.status_frame_title = ctk.CTkLabel(self.status_frame, text="Status")
         self.status_frame_title.grid(row=0, column=0, sticky='w', padx=10, pady=10)
 
-        self.status_subframe = ctk.CTkFrame(master=self.status_frame, fg_color="blue")
+        self.status_subframe = ctk.CTkFrame(master=self.status_frame, fg_color="orange")
         self.status_subframe.grid(row=1, column=0, sticky='wne', padx=10, pady=5)
 
         self.status_label = ctk.CTkLabel(self.status_subframe, text="Initializing")
@@ -199,40 +199,58 @@ class SettingsApp:
 
     def run(self, event=None):
         # Make sure to not kill running recording
-        if self.status == "recording":
+        if "Recording..." in self.stati:
             self.set_status("green", "Recording and changing values once done.")
             return
 
         # Try to stop previous thread
         if self.listener_thread:
-            self.set_status("blue", "Restarting Monitoring")
             self.stop_event.set()
             self.listener_thread.join()
             self.stop_event.clear()
 
         # And start again
-        try:
-            self.listener_thread = threading.Thread(
-                target=run,
-                args=(
-                    self.settings,
-                    self.status_callback,
-                    self.stop_event
-                )
+        self.listener_thread = threading.Thread(
+            target=run,
+            args=(
+                self.settings,
+                self.status_callback,
+                self.stop_event
             )
-            self.listener_thread.start()
-        except Exception as e:
-            self.set_status("red", f"Error: {e}")
+        )
+        self.listener_thread.start()
 
-    def status_callback(self, status):
-        self.status = status
-        print("Got Status", status)
 
-        # Update status in ui
-        if status == "recording":
-            self.set_status("green", "Recording...")
-        elif status == "listening":
-            self.set_status("orange", "Waiting for activity...")
+    def status_callback(self, message):
+        print("Got Status Message", message)
+
+        if message == "recording_start":
+            self.stati.remove("Ready")
+            self.stati.append("Recording...")
+        elif message == "recording_end":
+            self.stati.remove("Recording...")
+            self.stati.append("Ready")
+
+        elif message == "processing_start":
+            self.stati.append("Processing...")
+        elif message == "processing_end":
+            self.stati.remove("Processing...")
+
+        elif message == "recording_ready":
+            self.stati = ["Ready"]
+        else:
+            self.stati = [message]
+
+        # Figure out color
+        color = "red"
+        if "Ready" in self.stati:
+            color = "#33dd33"
+        if "Recording..." in self.stati:
+            color = "green"
+        if "Initializing" in self.stati:
+            color = "orange"
+
+        self.set_status(color, ", ".join(self.stati))
 
     def save_settings(self, event=None):
         has_changed = False
