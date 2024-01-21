@@ -1,5 +1,6 @@
 import os
 import re
+import time
 
 # Copied from PELD: https://github.com/ArtificialQualia/PyEveLiveDPS/blob/master/PyEveLiveDPS/logreader.py
 # and slightly modified
@@ -73,7 +74,8 @@ class LogChecker:
         # Figure out current file state
         for file_name in os.listdir(directory):
             file_path = os.path.join(directory, file_name)
-            self.observed_files[file_path] = os.path.getsize(file_path)
+            if os.path.getmtime(file_path) > time.time() - 24 * 60 * 60:
+                self.observed_files[file_path] = os.path.getsize(file_path)
 
     def check(self):
         ret = False
@@ -81,12 +83,13 @@ class LogChecker:
         for file_name in os.listdir(self.directory):
             file_path = os.path.join(self.directory, file_name)
 
-            last_position = self.observed_files.get(file_path, 0)
-            new_content, new_position = read_log_file(file_path, last_position)
+            if os.path.getmtime(file_path) > time.time() - 24 * 60 * 60:
+                last_position = self.observed_files.get(file_path, 0)
+                new_content, new_position = read_log_file(file_path, last_position)
 
-            if new_content:
-                if check_log_content(new_content):
-                    ret = True
+                if new_content:
+                    if check_log_content(new_content):
+                        ret = True
 
-                self.observed_files[file_path] = new_position
+                    self.observed_files[file_path] = new_position
         return ret

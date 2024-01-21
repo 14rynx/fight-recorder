@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 
 import customtkinter as ctk
 
@@ -7,6 +9,10 @@ from runner import run
 
 class SettingsApp:
     def __init__(self, root):
+        self.status = "init"
+        self.stop_event = threading.Event()
+        self.listener_thread = None
+
         # Main
         self.root = root
         self.root.title("Fight Recorder")
@@ -151,10 +157,10 @@ class SettingsApp:
         self.status_frame_title = ctk.CTkLabel(self.status_frame, text="Status")
         self.status_frame_title.grid(row=0, column=0, sticky='w', padx=10, pady=10)
 
-        self.status_subframe = ctk.CTkFrame(master=self.status_frame, fg_color="red")
+        self.status_subframe = ctk.CTkFrame(master=self.status_frame, fg_color="blue")
         self.status_subframe.grid(row=1, column=0, sticky='wne', padx=10, pady=5)
 
-        self.status_label = ctk.CTkLabel(self.status_subframe, text="Not implemented.")
+        self.status_label = ctk.CTkLabel(self.status_subframe, text="Initializing")
         self.status_label.grid(row=1, column=0, sticky='we')
 
         self.run()
@@ -162,10 +168,12 @@ class SettingsApp:
     def select_log_directory(self):
         directory = ctk.filedialog.askdirectory()
         self.log_directory.set(directory)
+        self.save_and_run()
 
     def select_output_directory(self):
         directory = ctk.filedialog.askdirectory()
         self.output_directory.set(directory)
+        self.save_and_run()
 
     def set_startup(self):
         raise NotImplementedError
@@ -185,29 +193,87 @@ class SettingsApp:
             self.settings = {}
 
     def save_and_run(self, event=None):
-        self.save_settings()
-        self.run()
+        changed = self.save_settings()
+        if changed:
+            self.run()
 
     def run(self, event=None):
+        # Make sure to not kill running recording
+        if self.status == "recording":
+            self.set_status("green", "Recording and changing values once done.")
+            return
+
+        # Try to stop previous thread
+        if self.listener_thread:
+            self.set_status("blue", "Restarting Monitoring")
+            self.stop_event.set()
+            self.listener_thread.join()
+            self.stop_event.clear()
+
+        # And start again
         try:
-            run(self.settings)
+            self.listener_thread = threading.Thread(
+                target=run,
+                args=(
+                    self.settings,
+                    self.status_callback,
+                    self.stop_event
+                )
+            )
+            self.listener_thread.start()
         except Exception as e:
             self.set_status("red", f"Error: {e}")
 
+    def status_callback(self, status):
+        self.status = status
+        print("Got Status", status)
+
+        # Update status in ui
+        if status == "recording":
+            self.set_status("green", "Recording...")
+        elif status == "listening":
+            self.set_status("orange", "Waiting for activity...")
+
     def save_settings(self, event=None):
-        self.settings['OBS_HOST'] = self.obs_host_entry.get()
-        self.settings['OBS_PORT'] = self.obs_port_entry.get()
-        self.settings['OBS_PASSWORD'] = self.obs_password_entry.get()
+        has_changed = False
 
-        self.settings['LOG_DIR'] = self.log_directory_entry.get()
-        self.settings['OUTPUT_DIR'] = self.output_directory_entry.get()
+        if self.settings['OBS_HOST'] != self.obs_host_entry.get():
+            self.settings['OBS_HOST'] = self.obs_host_entry.get()
+            has_changed = True
 
-        self.settings['TIMEOUT'] = self.timeout_entry.get()
-        self.settings['CONCATENATE_OUTPUTS'] = self.concatenate_outputs_var.get()
-        self.settings['DELETE_ORIGINALS'] = self.delete_originals_var.get()
+        if self.settings['OBS_PORT'] != self.obs_port_entry.get():
+            self.settings['OBS_PORT'] = self.obs_port_entry.get()
+            has_changed = True
 
-        with open(self.settings_file, 'w') as f:
-            json.dump(self.settings, f, indent=2)
+        if self.settings['OBS_PASSWORD'] != self.obs_password_entry.get():
+            self.settings['OBS_PASSWORD'] = self.obs_password_entry.get()
+            has_changed = True
+
+        if self.settings['LOG_DIR'] != self.log_directory_entry.get():
+            self.settings['LOG_DIR'] = self.log_directory_entry.get()
+            has_changed = True
+
+        if self.settings['OUTPUT_DIR'] != self.output_directory_entry.get():
+            self.settings['OUTPUT_DIR'] = self.output_directory_entry.get()
+            has_changed = True
+
+        if self.settings['TIMEOUT'] != self.timeout_entry.get():
+            self.settings['TIMEOUT'] = self.timeout_entry.get()
+            has_changed = True
+
+        if self.settings['CONCATENATE_OUTPUTS'] != self.concatenate_outputs_var.get():
+            self.settings['CONCATENATE_OUTPUTS'] = self.concatenate_outputs_var.get()
+            has_changed = True
+
+        if self.settings['DELETE_ORIGINALS'] != self.delete_originals_var.get():
+            self.settings['DELETE_ORIGINALS'] = self.delete_originals_var.get()
+            has_changed = True
+
+        if has_changed:
+            with open(self.settings_file, 'w') as f:
+                json.dump(self.settings, f, indent=2)
+
+        return has_changed
 
     def set_status(self, color, text):
         self.status_subframe.configure(fg_color=color)
