@@ -5,27 +5,53 @@ import sys
 import threading
 
 import customtkinter as ctk
+import pystray
 import win32com.client
+from PIL import Image
 
 from runner import run
 
 
 class SettingsApp:
     def __init__(self, root):
+
+        # Figure out if packaged exe or not
+        self.packaged = getattr(sys, 'frozen', False)
+
+        # Setup required paths
+        self.settings_path = 'settings.json'
+
+        # Figure out path for persistency script
+        link_dir = f"{os.environ['APPDATA']}\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+        self.link_path = os.path.join(link_dir, "Fight_Recorder.lnk")
+        self.bat_path = os.path.join(link_dir, "Fight_Recorder.bat")
+
+        # Figure out base path for resources
+        if self.packaged:
+            self.base_path = sys._MEIPASS
+        else:
+            self.base_path = os.path.abspath(".")
+
+        # Load Settings
+        try:
+            with open(self.settings_path, 'r') as f:
+                self.settings = json.load(f)
+        except FileNotFoundError:
+            self.settings = {}
+
+        # Draw Maing Window
+        self.root = root
+        self.root.title("Fight Recorder")
+        self.root.iconbitmap(os.path.join(self.base_path, "data/icon.ico"))
+
+        # Setup Button Handlers and Stati
+        self.root.protocol('WM_DELETE_WINDOW', self.exit)
         self.stati = ["Initializing"]
         self.stop_event = threading.Event()
         self.listener_thread = None
 
-        # Main
-        self.root = root
-        self.root.title("Fight Recorder")
-
-        self.settings_path = 'settings.json'
-        self.load_settings()
-
-        link_dir = f"{os.environ['APPDATA']}\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
-        self.link_path = os.path.join(link_dir, "Fight_Recorder.lnk")
-        self.bat_path = os.path.join(link_dir, "Fight_Recorder.bat")
+        self.root.bind("<Unmap>", self.minimize_to_tray)
+        self.is_minimized = False
 
         # ---------------------------------------------------------------------
         # OBS Frame
@@ -185,16 +211,16 @@ class SettingsApp:
         self.save_and_run()
 
     def get_startup(self):
-        # Figure out if the application is ran as a script or not
-        if not getattr(sys, 'frozen', False):
-            self.run_on_startup_var.set(os.path.exists(self.bat_path))
-        else:
+        if self.packaged:
+            # It is ran as an executable -> Check for a shortcut
             self.run_on_startup_var.set(os.path.exists(self.link_path))
+        else:
+            # It is ran as a script -> Check for a bat file
+            self.run_on_startup_var.set(os.path.exists(self.bat_path))
 
     def set_startup(self):
         if self.run_on_startup_var.get():
-            # Figure out if the application is ran as a script or not
-            if getattr(sys, 'frozen', False):
+            if self.packaged:
                 # It is ran as an executable -> Make a shortcut
                 shell = win32com.client.Dispatch("WScript.Shell")
                 shortcut = shell.CreateShortCut(self.link_path)
@@ -217,13 +243,6 @@ class SettingsApp:
                 os.remove(self.link_path)
             with contextlib.suppress(FileNotFoundError):
                 os.remove(self.bat_path)
-
-    def load_settings(self):
-        try:
-            with open(self.settings_path, 'r') as f:
-                self.settings = json.load(f)
-        except FileNotFoundError:
-            self.settings = {}
 
     def save_and_run(self, event=None):
         changed = self.save_settings()
@@ -254,8 +273,6 @@ class SettingsApp:
         self.listener_thread.start()
 
     def status_callback(self, message):
-        print("Got Status Message", message)
-
         if message == "recording_start":
             self.stati.remove("Ready")
             self.stati.append("Recording...")
@@ -330,39 +347,48 @@ class SettingsApp:
         self.status_label.configure(text=text)
 
     def exit(self):
-        print("Exiting")
         self.stop_event.set()
         self.listener_thread.join()
         root.destroy()
 
-    # WIP Tray Functionality
-    # def exit_from_tray(self, icon):
-    #     icon.stop()
-    #     self.exit()
-    #
-    # def minimize_to_tray(self, event=None):
-    #     self.root.withdraw()
-    #     menu = (pystray.MenuItem('Show', self.show_from_tray),
-    #             pystray.MenuItem('Quit', self.exit_from_tray))
-    #
-    #     # Generate an image and draw a pattern
-    #     image = Image.new('RGB', (64, 64), "black")
-    #     dc = ImageDraw.Draw(image)
-    #     dc.rectangle((32, 0, 64, 32), fill="white")
-    #     dc.rectangle((0, 32, 32, 64), fill="white")
-    #
-    #     icon = pystray.Icon( 'test name', image, "My App", menu)
-    #     icon.run()
-    #
-    # def show_from_tray(self, icon):
-    #     icon.stop()
-    #     self.root.deiconify()
+    def exit_from_tray(self, icon):
+        icon.stop()
+        self.exit()
+
+    def minimize_to_tray(self, event=None):
+        # Workaround to ensure function is only called once
+        if not self.is_minimized:
+            self.is_minimized = True
+
+            # Clear main window
+            self.root.withdraw()
+
+            # Build tray icon
+            menu = (pystray.MenuItem('Show', self.show_from_tray, default=True),
+                    pystray.MenuItem('Quit', self.exit_from_tray))
+
+            image = Image.open(os.path.join(self.base_path, "data/icon.ico"))
+            icon = pystray.Icon("flightrecorder", image, "Fight Recorder", menu)
+            icon.run()
+
+    def show_from_tray(self, icon):
+        # Clear tray icon
+        icon.stop()
+
+        # Build main window
+        self.root.deiconify()
+
+        # Workaround to ensure minimize function is not called when showing again
+        self.root.after(0, self.reset_minimized)
+
+    def reset_minimized(self, event=None):
+        self.is_minimized = False
 
 
 if __name__ == "__main__":
     ctk.set_appearance_mode("System")
     ctk.set_default_color_theme("green")
+
     root = ctk.CTk()
     app = SettingsApp(root)
-    root.protocol('WM_DELETE_WINDOW', app.exit)
     root.mainloop()
