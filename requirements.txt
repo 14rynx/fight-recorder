@@ -2,3 +2,4 @@ obsws-python
 python-dotenv
 MoviePy
 customtkinter
+pywin32

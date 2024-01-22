@@ -1,8 +1,11 @@
+import contextlib
 import json
+import os
+import sys
 import threading
-import time
 
 import customtkinter as ctk
+import win32com.client
 
 from runner import run
 
@@ -17,8 +20,12 @@ class SettingsApp:
         self.root = root
         self.root.title("Fight Recorder")
 
-        self.settings_file = 'settings.json'
+        self.settings_path = 'settings.json'
         self.load_settings()
+
+        link_dir = f"{os.environ['APPDATA']}\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+        self.link_path = os.path.join(link_dir, "Fight_Recorder.lnk")
+        self.bat_path = os.path.join(link_dir, "Fight_Recorder.bat")
 
         # ---------------------------------------------------------------------
         # OBS Frame
@@ -163,6 +170,8 @@ class SettingsApp:
         self.status_label = ctk.CTkLabel(self.status_subframe, text="Initializing")
         self.status_label.grid(row=1, column=0, sticky='we')
 
+        # Start working
+        self.get_startup()
         self.run()
 
     def select_log_directory(self):
@@ -175,19 +184,44 @@ class SettingsApp:
         self.output_directory.set(directory)
         self.save_and_run()
 
-    def set_startup(self):
-        raise NotImplementedError
+    def get_startup(self):
+        # Figure out if the application is ran as a script or not
+        if not getattr(sys, 'frozen', False):
+            self.run_on_startup_var.set(os.path.exists(self.bat_path))
+        else:
+            self.run_on_startup_var.set(os.path.exists(self.link_path))
 
-        """ 
-        Something like this:
-        from os import getcwd
-        from shutil import copy
-        copy(getcwd() + '/settings.exe', 'C:/Users/USERNAME/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup')
-        """
+    def set_startup(self):
+        if self.run_on_startup_var.get():
+            # Figure out if the application is ran as a script or not
+            if getattr(sys, 'frozen', False):
+                # It is ran as an executable -> Make a shortcut
+                shell = win32com.client.Dispatch("WScript.Shell")
+                shortcut = shell.CreateShortCut(self.link_path)
+                shortcut.Targetpath = sys.executable
+                shortcut.WorkingDirectory = os.path.dirname(sys.executable)
+                # shortcut.IconLocation = icon
+                shortcut.WindowStyle = 1  # 7 - Minimized, 3 - Maximized, 1 - Normal
+                shortcut.save()
+
+            else:
+                # It is ran as a script -> Make a bat file to activate venv and start it
+                main_file = os.path.realpath(__file__)
+                directory = os.path.dirname(main_file)
+                command = f"{directory}\\venv\\Scripts\\activate.bat && cd {directory} && start python {main_file}"
+                with open(self.bat_path, "w+") as bat_file:
+                    bat_file.write(command)
+
+        else:
+            # Try removing both kind of link files
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(self.link_path)
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(self.bat_path)
 
     def load_settings(self):
         try:
-            with open(self.settings_file, 'r') as f:
+            with open(self.settings_path, 'r') as f:
                 self.settings = json.load(f)
         except FileNotFoundError:
             self.settings = {}
@@ -219,7 +253,6 @@ class SettingsApp:
             )
         )
         self.listener_thread.start()
-
 
     def status_callback(self, message):
         print("Got Status Message", message)
@@ -288,7 +321,7 @@ class SettingsApp:
             has_changed = True
 
         if has_changed:
-            with open(self.settings_file, 'w') as f:
+            with open(self.settings_path, 'w') as f:
                 json.dump(self.settings, f, indent=2)
 
         return has_changed
@@ -297,10 +330,40 @@ class SettingsApp:
         self.status_subframe.configure(fg_color=color)
         self.status_label.configure(text=text)
 
+    def exit(self):
+        print("Exiting")
+        self.stop_event.set()
+        self.listener_thread.join()
+        root.destroy()
+
+    # WIP Tray Functionality
+    # def exit_from_tray(self, icon):
+    #     icon.stop()
+    #     self.exit()
+    #
+    # def minimize_to_tray(self, event=None):
+    #     self.root.withdraw()
+    #     menu = (pystray.MenuItem('Show', self.show_from_tray),
+    #             pystray.MenuItem('Quit', self.exit_from_tray))
+    #
+    #     # Generate an image and draw a pattern
+    #     image = Image.new('RGB', (64, 64), "black")
+    #     dc = ImageDraw.Draw(image)
+    #     dc.rectangle((32, 0, 64, 32), fill="white")
+    #     dc.rectangle((0, 32, 32, 64), fill="white")
+    #
+    #     icon = pystray.Icon( 'test name', image, "My App", menu)
+    #     icon.run()
+    #
+    # def show_from_tray(self, icon):
+    #     icon.stop()
+    #     self.root.deiconify()
+
 
 if __name__ == "__main__":
     ctk.set_appearance_mode("System")
     ctk.set_default_color_theme("green")
     root = ctk.CTk()
     app = SettingsApp(root)
+    root.protocol('WM_DELETE_WINDOW', app.exit)
     root.mainloop()
