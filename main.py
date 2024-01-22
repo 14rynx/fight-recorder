@@ -49,7 +49,7 @@ class SettingsApp:
         self.stati = ["Initializing"]
         self.stop_event = threading.Event()
         self.listener_thread = None
-
+        self.icon = None
         self.root.bind("<Unmap>", self.minimize_to_tray)
         self.is_minimized = False
 
@@ -273,12 +273,16 @@ class SettingsApp:
         self.listener_thread.start()
 
     def status_callback(self, message):
+        print("got callback", message)
+
         if message == "recording_start":
             self.stati.remove("Ready")
             self.stati.append("Recording...")
+            self.icon.icon = Image.open(os.path.join(self.base_path, "data", "green.ico"))
         elif message == "recording_end":
             self.stati.remove("Recording...")
             self.stati.append("Ready")
+            self.icon.icon = Image.open(os.path.join(self.base_path, "data", "icon.ico"))
 
         elif message == "processing_start":
             self.stati.append("Processing...")
@@ -352,7 +356,7 @@ class SettingsApp:
         root.destroy()
 
     def exit_from_tray(self, icon):
-        icon.stop()
+        self.icon.stop()
         self.exit()
 
     def minimize_to_tray(self, event=None):
@@ -366,10 +370,9 @@ class SettingsApp:
             # Build tray icon
             menu = (pystray.MenuItem('Show', self.show_from_tray, default=True),
                     pystray.MenuItem('Quit', self.exit_from_tray))
-
             image = Image.open(os.path.join(self.base_path, "data/icon.ico"))
-            icon = pystray.Icon("flightrecorder", image, "Fight Recorder", menu)
-            icon.run()
+            self.icon = pystray.Icon("flightrecorder", image, "Fight Recorder", menu)
+            self.icon.run()
 
     def show_from_tray(self, icon):
         # Clear tray icon
