@@ -1,0 +1,1 @@
+pyinstaller --onefile --noconsole --icon picture.ico --name "Fight Recorder" main.py

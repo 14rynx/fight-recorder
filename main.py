@@ -200,7 +200,6 @@ class SettingsApp:
                 shortcut = shell.CreateShortCut(self.link_path)
                 shortcut.Targetpath = sys.executable
                 shortcut.WorkingDirectory = os.path.dirname(sys.executable)
-                # shortcut.IconLocation = icon
                 shortcut.WindowStyle = 1  # 7 - Minimized, 3 - Maximized, 1 - Normal
                 shortcut.save()
 
