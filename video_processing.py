@@ -23,9 +23,11 @@ class VideoProcessing:
 
     def process(self, replay_path, recording_path, output_dir, output_name):
 
-        destination_replay = os.path.join(output_dir, f"{output_name}_replay.mkv")
-        destination_recording = os.path.join(output_dir, f"{output_name}_recording.mkv")
-        destination_concatenated = os.path.join(output_dir, f"{output_name}_concatenated.mkv")
+        _, extension = os.path.splitext(replay_path)
+
+        destination_replay = os.path.join(output_dir, f"{output_name}_replay{extension}")
+        destination_recording = os.path.join(output_dir, f"{output_name}_recording{extension}")
+        destination_concatenated = os.path.join(output_dir, f"{output_name}_concatenated{extension}")
 
         os.rename(replay_path, destination_replay)
         while True:
