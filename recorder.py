@@ -42,9 +42,9 @@ class TimeoutRecording:
                 self.ws.save_replay_buffer()
                 self.end_time = datetime.datetime.now() + datetime.timedelta(seconds=self.timeout)
                 self.start_time = datetime.datetime.now()
-            except Exception as e:
-                print(f"Error starting recording: {e}")
-                raise e
+            except obs.error.OBSSDKRequestError:
+                # OBS is already recording -> do nothing
+                pass
             return True
         else:
             self.end_time = datetime.datetime.now() + datetime.timedelta(seconds=60)

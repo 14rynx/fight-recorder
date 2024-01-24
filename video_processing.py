@@ -4,15 +4,24 @@ import time
 
 from moviepy.editor import VideoFileClip, concatenate_videoclips
 
+from enum import Enum
 
-class PostProcessing:
+
+class ProcessingStatusCallback(Enum):
+    PROCESSING_READY = 1
+    PROCESSING_STARTED = 2
+    PROCESSING_ENDED = 3
+    PROCESSING_ERROR = 4
+
+
+class VideoProcessing:
     def __init__(self, concatenate, delete, status_callback):
         self.concatenate = concatenate
         self.delete = delete
         self.status_callback = status_callback
+        self.status_callback(ProcessingStatusCallback.PROCESSING_READY)
 
     def process(self, replay_path, recording_path, output_dir, output_name):
-        self.status_callback("processing_start")
 
         destination_replay = os.path.join(output_dir, f"{output_name}_replay.mkv")
         destination_recording = os.path.join(output_dir, f"{output_name}_recording.mkv")
@@ -29,7 +38,7 @@ class PostProcessing:
         # Concatenate (and delete if needed)
         if self.concatenate:
             video_processing_thread = threading.Thread(
-                target=process_video_clips,
+                target=processing_thread,
                 args=(
                     destination_replay,
                     destination_recording,
@@ -41,22 +50,28 @@ class PostProcessing:
             video_processing_thread.start()
 
 
-def process_video_clips(replay_path, recording_path, output_path, delete, status_callback):
-    # Load video clips
-    replay_buffer_clip = VideoFileClip(replay_path)
-    recording_clip = VideoFileClip(recording_path)
+def processing_thread(replay_path, recording_path, output_path, delete, status_callback):
+    status_callback(ProcessingStatusCallback.PROCESSING_STARTED)
 
-    # Concatenate video clips
-    combined_clip = concatenate_videoclips([replay_buffer_clip, recording_clip])
+    try:
+        # Load video clips
+        replay_buffer_clip = VideoFileClip(replay_path)
+        recording_clip = VideoFileClip(recording_path)
 
-    combined_clip.write_videofile(output_path, codec="libx264", audio_codec="aac", threads=8)
+        # Concatenate video clips
+        combined_clip = concatenate_videoclips([replay_buffer_clip, recording_clip])
 
-    # Close the video clips
-    replay_buffer_clip.close()
-    recording_clip.close()
+        combined_clip.write_videofile(output_path, codec="libx264", audio_codec="aac", threads=8)
 
-    if delete:
-        os.remove(replay_path)
-        os.remove(recording_path)
+        # Close the video clips
+        replay_buffer_clip.close()
+        recording_clip.close()
 
-    status_callback("processing_end")
+        if delete:
+            os.remove(replay_path)
+            os.remove(recording_path)
+
+        status_callback(ProcessingStatusCallback.PROCESSING_ENDED)
+    except Exception as e:
+        print(e)
+        status_callback(ProcessingStatusCallback.PROCESSING_ERROR)

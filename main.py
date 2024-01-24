@@ -1,22 +1,45 @@
 import contextlib
 import json
+import logging
 import os
 import sys
 import threading
+from enum import Enum
 
 import customtkinter as ctk
 import pystray
 import win32com.client
 from PIL import Image
 
-from runner import run
+from listener_thread import run, RecordingStatusCallback
+
+from video_processing import ProcessingStatusCallback
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(name)s: %(message)s')
+logger = logging.getLogger("main")
 
 
-class SettingsApp:
+class RecordingStatus(Enum):
+    INIT = 1
+    READY = 2
+    RECORDING = 3
+    ERROR = 4
+
+
+class ProcessingStatus(Enum):
+    INIT = 1
+    READY = 2
+    PROCESSING = 3
+    ERROR = 4
+
+
+class FightRecorderApp:
     def __init__(self, root):
 
         # Figure out if packaged exe or not
         self.packaged = getattr(sys, 'frozen', False)
+        logger.info(f"App is packaged {self.packaged}")
 
         # Setup required paths
         self.settings_path = 'settings.json'
@@ -36,8 +59,10 @@ class SettingsApp:
         try:
             with open(self.settings_path, 'r') as f:
                 self.settings = json.load(f)
+            logger.info("loaded settings")
         except FileNotFoundError:
             self.settings = {}
+            logger.warning("loading settings failed, running empy settings")
 
         # Draw Maing Window
         self.root = root
@@ -46,47 +71,48 @@ class SettingsApp:
 
         # Setup Button Handlers and Stati
         self.root.protocol('WM_DELETE_WINDOW', self.exit)
-        self.stati = ["Initializing"]
+        self.recording_status = RecordingStatus.INIT
+        self.processing_status = ProcessingStatus.INIT
         self.stop_event = threading.Event()
         self.listener_thread = None
-        self.icon = None
         self.root.bind("<Unmap>", self.minimize_to_tray)
+        self.root.bind('<Control-s>', self.save_and_run)
         self.is_minimized = False
 
         # ---------------------------------------------------------------------
         # OBS Frame
         self.obs_frame = ctk.CTkFrame(master=self.root)
-        self.obs_frame.grid(row=0, column=0, padx=10, pady=5, sticky='wne')
+        self.obs_frame.grid(row=0, column=0, padx=10, pady=5, sticky='wnes')
 
         self.obs_frame_title = ctk.CTkLabel(self.obs_frame, text="OBS Settings")
-        self.obs_frame_title.grid(row=0, column=0, sticky='w', padx=10, pady=10)
+        self.obs_frame_title.grid(row=0, column=0, sticky="w", padx=10, pady=10)
 
         # OBS Host
         self.obs_host_label = ctk.CTkLabel(self.obs_frame, text="Host:")
-        self.obs_host_label.grid(row=1, column=0, sticky='w', padx=10, pady=5)
+        self.obs_host_label.grid(row=1, column=0, sticky="w", padx=10, pady=5)
 
         self.obs_host_entry = ctk.CTkEntry(self.obs_frame, border_width=0)
         self.obs_host_entry.insert(0, self.settings.get('OBS_HOST', ''))
         self.obs_host_entry.bind('<FocusOut>', self.save_and_run)
-        self.obs_host_entry.grid(row=1, column=1, sticky='e', padx=10, pady=5)
+        self.obs_host_entry.grid(row=1, column=1, sticky="e", padx=10, pady=5)
 
         # OBS Port
         self.obs_port_label = ctk.CTkLabel(self.obs_frame, text="Port:")
-        self.obs_port_label.grid(row=2, column=0, sticky='w', padx=10, pady=5)
+        self.obs_port_label.grid(row=2, column=0, sticky="w", padx=10, pady=5)
 
         self.obs_port_entry = ctk.CTkEntry(self.obs_frame, border_width=0)
         self.obs_port_entry.insert(0, self.settings.get('OBS_PORT', ''))
         self.obs_port_entry.bind('<FocusOut>', self.save_and_run)
-        self.obs_port_entry.grid(row=2, column=1, sticky='e', padx=10, pady=5)
+        self.obs_port_entry.grid(row=2, column=1, sticky="e", padx=10, pady=5)
 
         # OBS Password
         self.obs_password_label = ctk.CTkLabel(self.obs_frame, text="Password:")
-        self.obs_password_label.grid(row=3, column=0, sticky='w', padx=10, pady=5)
+        self.obs_password_label.grid(row=3, column=0, sticky="w", padx=10, pady=5)
 
         self.obs_password_entry = ctk.CTkEntry(self.obs_frame, show='*', border_width=0)
         self.obs_password_entry.insert(0, self.settings.get('OBS_PASSWORD', ''))
         self.obs_password_entry.bind('<FocusOut>', self.save_and_run)
-        self.obs_password_entry.grid(row=3, column=1, sticky='e', padx=10, pady=5)
+        self.obs_password_entry.grid(row=3, column=1, sticky="e", padx=10, pady=5)
 
         # ---------------------------------------------------------------------
         # Behaviour Frame
@@ -94,16 +120,16 @@ class SettingsApp:
         self.behaviour_frame.grid(row=0, column=1, padx=10, pady=5, sticky='wne')
 
         self.behaviour_frame_title = ctk.CTkLabel(self.behaviour_frame, text="Behaviour Settings")
-        self.behaviour_frame_title.grid(row=0, column=0, sticky='wn', padx=10, pady=10)
+        self.behaviour_frame_title.grid(row=0, column=0, sticky='w', padx=10, pady=10)
 
         # Timeout
         self.timeout_label = ctk.CTkLabel(self.behaviour_frame, text="Timeout:")
-        self.timeout_label.grid(row=1, column=0, sticky='w', padx=10, pady=5)
+        self.timeout_label.grid(row=1, column=0, sticky='e', padx=10, pady=5)
 
         self.timeout_entry = ctk.CTkEntry(self.behaviour_frame, border_width=0)
         self.timeout_entry.insert(0, self.settings.get('TIMEOUT', ''))
         self.timeout_entry.bind('<FocusOut>', self.save_and_run)
-        self.timeout_entry.grid(row=1, column=1, sticky='e', padx=10, pady=5)
+        self.timeout_entry.grid(row=1, column=1, sticky='we', padx=10, pady=5)
 
         # Concatenate Outputs
         self.concatenate_outputs_var = ctk.BooleanVar()
@@ -134,7 +160,7 @@ class SettingsApp:
             self.behaviour_frame,
             text="Run On Startup",
             variable=self.run_on_startup_var,
-            command=self.set_startup
+            command=self.set_autostart
         )
         self.run_on_startup_checkbox.grid(row=4, column=0, columnspan=3, sticky='w', padx=10, pady=5)
 
@@ -152,7 +178,7 @@ class SettingsApp:
 
         self.log_directory = ctk.StringVar()
         self.log_directory.set(self.settings.get('LOG_DIR', ''))
-        self.log_directory_entry = ctk.CTkEntry(self.directory_frame, textvariable=self.log_directory, width=500,
+        self.log_directory_entry = ctk.CTkEntry(self.directory_frame, textvariable=self.log_directory, width=350,
                                                 border_width=0)
         self.log_directory_entry.bind('<FocusOut>', self.save_and_run)
         self.log_directory_entry.grid(row=1, column=1, sticky='we', padx=10, pady=5)
@@ -170,7 +196,7 @@ class SettingsApp:
 
         self.output_directory = ctk.StringVar()
         self.output_directory.set(self.settings.get('OUTPUT_DIR', ''))
-        self.output_directory_entry = ctk.CTkEntry(self.directory_frame, textvariable=self.output_directory, width=500,
+        self.output_directory_entry = ctk.CTkEntry(self.directory_frame, textvariable=self.output_directory, width=350,
                                                    border_width=0)
         self.output_directory_entry.bind('<FocusOut>', self.save_and_run)
         self.output_directory_entry.grid(row=2, column=1, sticky='we', padx=10, pady=5)
@@ -188,17 +214,26 @@ class SettingsApp:
         self.status_frame.grid(row=2, column=0, columnspan=2, padx=10, pady=5, sticky='wne')
 
         self.status_frame_title = ctk.CTkLabel(self.status_frame, text="Status")
-        self.status_frame_title.grid(row=0, column=0, sticky='w', padx=10, pady=10)
+        self.status_frame_title.pack(side="left", padx=10, pady=10)
 
         self.status_subframe = ctk.CTkFrame(master=self.status_frame, fg_color="orange")
-        self.status_subframe.grid(row=1, column=0, sticky='wne', padx=10, pady=5)
+        self.status_subframe.pack(side="right", padx=5, pady=5)
 
         self.status_label = ctk.CTkLabel(self.status_subframe, text="Initializing")
-        self.status_label.grid(row=1, column=0, sticky='we')
+        self.status_label.grid(row=1, column=0, sticky='e', padx=5, pady=5)
+
+        # ---------------------------------------------------------------------
+        # Tray icon
+        menu = (pystray.MenuItem('Show', self.show_from_tray, default=True),
+                pystray.MenuItem('Quit', self.exit))
+        image = Image.open(os.path.join(self.base_path, "data/icon.ico"))
+        self.icon = pystray.Icon("flightrecorder", image, "Fight Recorder", menu)
+        self.tray_thread = threading.Thread(target=lambda: self.icon.run(), daemon=True)
+        self.tray_thread.start()
 
         # Start working
-        self.get_startup()
-        self.run()
+        self.get_autostart()
+        self.start_listener()
 
     def select_log_directory(self):
         directory = ctk.filedialog.askdirectory()
@@ -210,7 +245,7 @@ class SettingsApp:
         self.output_directory.set(directory)
         self.save_and_run()
 
-    def get_startup(self):
+    def get_autostart(self):
         if self.packaged:
             # It is ran as an executable -> Check for a shortcut
             self.run_on_startup_var.set(os.path.exists(self.link_path))
@@ -218,7 +253,7 @@ class SettingsApp:
             # It is ran as a script -> Check for a bat file
             self.run_on_startup_var.set(os.path.exists(self.bat_path))
 
-    def set_startup(self):
+    def set_autostart(self):
         if self.run_on_startup_var.get():
             if self.packaged:
                 # It is ran as an executable -> Make a shortcut
@@ -247,12 +282,12 @@ class SettingsApp:
     def save_and_run(self, event=None):
         changed = self.save_settings()
         if changed:
-            self.run()
+            self.start_listener()
 
-    def run(self, event=None):
+    def start_listener(self, event=None):
+        logger.info("(re)started listener")
         # Make sure to not kill running recording
-        if "Recording..." in self.stati:
-            self.set_status("green", "Recording and changing values once done.")
+        if self.recording_status == RecordingStatus.RECORDING:
             return
 
         # Try to stop previous thread
@@ -273,37 +308,55 @@ class SettingsApp:
         self.listener_thread.start()
 
     def status_callback(self, message):
-        print("got callback", message)
+        logger.info(f"Got status message {message}")
 
-        if message == "recording_start":
-            self.stati.remove("Ready")
-            self.stati.append("Recording...")
+        if message == RecordingStatusCallback.RECORDING_READY:
+            self.recording_status = RecordingStatus.READY
+        elif message == RecordingStatusCallback.RECORDING_STARTED:
             self.icon.icon = Image.open(os.path.join(self.base_path, "data", "green.ico"))
-        elif message == "recording_end":
-            self.stati.remove("Recording...")
-            self.stati.append("Ready")
+            self.recording_status = RecordingStatus.RECORDING
+        elif message == RecordingStatusCallback.RECORDING_ENDED:
             self.icon.icon = Image.open(os.path.join(self.base_path, "data", "icon.ico"))
+            self.recording_status = RecordingStatus.READY
+        elif message == RecordingStatusCallback.RECORDING_ERROR:
+            self.recording_status = RecordingStatus.ERROR
 
-        elif message == "processing_start":
-            self.stati.append("Processing...")
-        elif message == "processing_end":
-            self.stati.remove("Processing...")
+        if message == ProcessingStatusCallback.PROCESSING_READY:
+            self.processing_status = ProcessingStatus.READY
+        elif message == ProcessingStatusCallback.PROCESSING_STARTED:
+            self.processing_status = ProcessingStatus.PROCESSING
+        elif message == ProcessingStatusCallback.PROCESSING_ENDED:
+            self.processing_status = ProcessingStatus.READY
+        elif message == ProcessingStatusCallback.PROCESSING_ERROR:
+            self.processing_status = ProcessingStatus.ERROR
 
-        elif message == "recording_ready":
-            self.stati = ["Ready"]
-        else:
-            self.stati = [message]
+        if self.recording_status == RecordingStatus.ERROR or self.processing_status == ProcessingStatus.ERROR:
+            color = "red"
+            text = "Error"
 
-        # Figure out color
-        color = "red"
-        if "Ready" in self.stati:
+        elif self.recording_status == RecordingStatus.READY:
             color = "#33dd33"
-        if "Recording..." in self.stati:
-            color = "green"
-        if "Initializing" in self.stati:
-            color = "orange"
+            if self.processing_status == ProcessingStatus.PROCESSING:
+                text = "Ready (and processing previous video)"
+            else:
+                text = "Ready"
 
-        self.set_status(color, ", ".join(self.stati))
+        elif self.recording_status == RecordingStatus.RECORDING:
+            color = "green"
+            if self.processing_status == ProcessingStatus.PROCESSING:
+                text = "Recording (and processing previous video)"
+            else:
+                text = "Recording"
+
+        elif self.recording_status == RecordingStatus.INIT or self.processing_status == ProcessingStatus.INIT:
+            color = "orange"
+            text = "Initializing"
+        else:
+            color = "red"
+            text = "Not Ready"
+
+        self.status_subframe.configure(fg_color=color)
+        self.status_label.configure(text=text)
 
     def save_settings(self, event=None):
         has_changed = False
@@ -343,40 +396,37 @@ class SettingsApp:
         if has_changed:
             with open(self.settings_path, 'w') as f:
                 json.dump(self.settings, f, indent=2)
+            logger.info("Saved Settings")
 
         return has_changed
 
-    def set_status(self, color, text):
-        self.status_subframe.configure(fg_color=color)
-        self.status_label.configure(text=text)
+    def exit(self, icon=None):
+        logger.info("Exiting...")
 
-    def exit(self):
+        # Stop tray icon (if we are given an icon we are in that thread and don't need to join it)
+        self.icon.stop()
+        if icon is None:
+            self.tray_thread.join()
+
+        # Stop Listener
         self.stop_event.set()
         self.listener_thread.join()
-        root.destroy()
 
-    def exit_from_tray(self, icon):
-        self.icon.stop()
-        self.exit()
+        self.root.destroy()
 
     def minimize_to_tray(self, event=None):
         # Workaround to ensure function is only called once
-        if not self.is_minimized:
-            self.is_minimized = True
+        if self.is_minimized:
+            return
+        self.is_minimized = True
 
-            # Clear main window
-            self.root.withdraw()
+        logger.info("Minimizing to Tray")
 
-            # Build tray icon
-            menu = (pystray.MenuItem('Show', self.show_from_tray, default=True),
-                    pystray.MenuItem('Quit', self.exit_from_tray))
-            image = Image.open(os.path.join(self.base_path, "data/icon.ico"))
-            self.icon = pystray.Icon("flightrecorder", image, "Fight Recorder", menu)
-            self.icon.run()
+        # Clear main window
+        self.root.withdraw()
 
-    def show_from_tray(self, icon):
-        # Clear tray icon
-        icon.stop()
+    def show_from_tray(self, icon=None):
+        logger.info("Maximizing from Tray")
 
         # Build main window
         self.root.deiconify()
@@ -393,5 +443,5 @@ if __name__ == "__main__":
     ctk.set_default_color_theme("green")
 
     root = ctk.CTk()
-    app = SettingsApp(root)
+    app = FightRecorderApp(root)
     root.mainloop()
