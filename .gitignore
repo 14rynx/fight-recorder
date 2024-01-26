@@ -2,3 +2,4 @@ dist/
 debug/
 build/
 .idea/
+main.log

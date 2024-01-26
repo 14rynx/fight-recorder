@@ -16,7 +16,7 @@ from listener_thread import run, RecordingStatusCallback
 from video_processing import ProcessingStatusCallback
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(name)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(name)s: %(message)s', filename="main.log")
 logger = logging.getLogger("main")
 
 
@@ -36,6 +36,7 @@ class ProcessingStatus(Enum):
 
 class FightRecorderApp:
     def __init__(self, root):
+        self.root = root
 
         # Figure out if packaged exe or not
         self.packaged = getattr(sys, 'frozen', False)
@@ -64,22 +65,41 @@ class FightRecorderApp:
             self.settings = {}
             logger.warning("loading settings failed, running empy settings")
 
-        # Draw Maing Window
-        self.root = root
+        # Draw Main Window
         self.root.title("Fight Recorder")
-        self.root.iconbitmap(os.path.join(self.base_path, "data/icon.ico"))
+        self.root.iconbitmap(os.path.join(self.base_path, "data", "orange.ico"))
 
-        # Setup Button Handlers and Stati
-        self.root.protocol('WM_DELETE_WINDOW', self.exit)
+        # Status of Programm
         self.recording_status = RecordingStatus.INIT
         self.processing_status = ProcessingStatus.INIT
-        self.stop_event = threading.Event()
-        self.listener_thread = None
-        self.root.bind("<Unmap>", self.minimize_to_tray)
-        self.root.bind('<Control-s>', self.save_and_run)
+        self.error_message = ""
         self.is_minimized = False
 
-        # ---------------------------------------------------------------------
+        # Make Thread Relevant Setup
+        self.stop_event = threading.Event()
+        self.listener_thread = None
+
+        # Setup event callback
+        self.root.protocol('WM_DELETE_WINDOW', self.exit)
+        self.root.bind("<Unmap>", self.minimize_to_tray)
+        self.root.bind('<Control-s>', self.save_and_run)
+
+        # Draw main ui
+        self.draw_ui()
+
+        # Build tray icon
+        menu = (pystray.MenuItem('Show', self.show_from_tray, default=True),
+                pystray.MenuItem('Quit', self.exit))
+        image = Image.open(os.path.join(self.base_path, "data", "orange.ico"))
+        self.icon = pystray.Icon("flightrecorder", image, "Fight Recorder", menu)
+        self.tray_thread = threading.Thread(target=lambda: self.icon.run(), daemon=True)
+        self.tray_thread.start()
+
+        # Start working
+        self.get_autostart()
+        self.start_listener()
+
+    def draw_ui(self):
         # OBS Frame
         self.obs_frame = ctk.CTkFrame(master=self.root)
         self.obs_frame.grid(row=0, column=0, padx=10, pady=5, sticky='wnes')
@@ -222,30 +242,21 @@ class FightRecorderApp:
         self.status_label = ctk.CTkLabel(self.status_subframe, text="Initializing")
         self.status_label.grid(row=1, column=0, sticky='e', padx=5, pady=5)
 
-        # ---------------------------------------------------------------------
-        # Tray icon
-        menu = (pystray.MenuItem('Show', self.show_from_tray, default=True),
-                pystray.MenuItem('Quit', self.exit))
-        image = Image.open(os.path.join(self.base_path, "data/icon.ico"))
-        self.icon = pystray.Icon("flightrecorder", image, "Fight Recorder", menu)
-        self.tray_thread = threading.Thread(target=lambda: self.icon.run(), daemon=True)
-        self.tray_thread.start()
-
-        # Start working
-        self.get_autostart()
-        self.start_listener()
 
     def select_log_directory(self):
+        """open a file dialog for log directory"""
         directory = ctk.filedialog.askdirectory()
         self.log_directory.set(directory)
         self.save_and_run()
 
     def select_output_directory(self):
+        """open a file dialog for output directory"""
         directory = ctk.filedialog.askdirectory()
         self.output_directory.set(directory)
         self.save_and_run()
 
     def get_autostart(self):
+        """check if there is a script / symlink so that the program will automatically start on user login"""
         if self.packaged:
             # It is ran as an executable -> Check for a shortcut
             self.run_on_startup_var.set(os.path.exists(self.link_path))
@@ -254,6 +265,7 @@ class FightRecorderApp:
             self.run_on_startup_var.set(os.path.exists(self.bat_path))
 
     def set_autostart(self):
+        """setup a script / symlink so that the program will automatically start on user login"""
         if self.run_on_startup_var.get():
             if self.packaged:
                 # It is ran as an executable -> Make a shortcut
@@ -280,11 +292,13 @@ class FightRecorderApp:
                 os.remove(self.bat_path)
 
     def save_and_run(self, event=None):
+        """save settings and start / restart listener if needed"""
         changed = self.save_settings()
         if changed:
             self.start_listener()
 
     def start_listener(self, event=None):
+        """start the thread listening to logfiles and starting recordings"""
         logger.info("(re)started listener")
         # Make sure to not kill running recording
         if self.recording_status == RecordingStatus.RECORDING:
@@ -308,34 +322,53 @@ class FightRecorderApp:
         self.listener_thread.start()
 
     def status_callback(self, message):
+        """update the internal status based on a status message and update ui"""
         logger.info(f"Got status message {message}")
 
+        # Parse error message into internal state
         if message == RecordingStatusCallback.RECORDING_READY:
             self.recording_status = RecordingStatus.READY
         elif message == RecordingStatusCallback.RECORDING_STARTED:
-            self.icon.icon = Image.open(os.path.join(self.base_path, "data", "green.ico"))
             self.recording_status = RecordingStatus.RECORDING
         elif message == RecordingStatusCallback.RECORDING_ENDED:
-            self.icon.icon = Image.open(os.path.join(self.base_path, "data", "icon.ico"))
             self.recording_status = RecordingStatus.READY
-        elif message == RecordingStatusCallback.RECORDING_ERROR:
+        elif type(message) is tuple and message[0] == RecordingStatusCallback.RECORDING_ERROR:
             self.recording_status = RecordingStatus.ERROR
+            self.error_message = message[1:]
 
-        if message == ProcessingStatusCallback.PROCESSING_READY:
+        elif message == ProcessingStatusCallback.PROCESSING_READY:
             self.processing_status = ProcessingStatus.READY
         elif message == ProcessingStatusCallback.PROCESSING_STARTED:
             self.processing_status = ProcessingStatus.PROCESSING
         elif message == ProcessingStatusCallback.PROCESSING_ENDED:
             self.processing_status = ProcessingStatus.READY
-        elif message == ProcessingStatusCallback.PROCESSING_ERROR:
+        elif type(message) is tuple and message[0] == ProcessingStatusCallback.PROCESSING_ERROR:
             self.processing_status = ProcessingStatus.ERROR
+            self.error_message = message[1:]
 
+        self.display_status()
+
+    def display_status(self):
+        """look at the internal status and update ui accordingly"""
+
+        # Display output based on internal state
         if self.recording_status == RecordingStatus.ERROR or self.processing_status == ProcessingStatus.ERROR:
+            self.icon.icon = Image.open(os.path.join(self.base_path, "data", "gray.ico"))
             color = "red"
-            text = "Error"
+            if len(self.error_message) > 0:
+                text = f"Error: {self.error_message}"
+            else:
+                text = "Unknown Error"
+
+        elif self.recording_status == RecordingStatus.INIT or self.processing_status == ProcessingStatus.INIT:
+            color = "orange"
+            text = "Initializing"
+            self.icon.icon = Image.open(os.path.join(self.base_path, "data", "gray.ico"))
 
         elif self.recording_status == RecordingStatus.READY:
             color = "#33dd33"
+            self.icon.icon = Image.open(os.path.join(self.base_path, "data", "orange.ico"))
+
             if self.processing_status == ProcessingStatus.PROCESSING:
                 text = "Ready (and processing previous video)"
             else:
@@ -343,56 +376,45 @@ class FightRecorderApp:
 
         elif self.recording_status == RecordingStatus.RECORDING:
             color = "green"
+            self.icon.icon = Image.open(os.path.join(self.base_path, "data", "green.ico"))
+
             if self.processing_status == ProcessingStatus.PROCESSING:
                 text = "Recording (and processing previous video)"
             else:
                 text = "Recording"
 
-        elif self.recording_status == RecordingStatus.INIT or self.processing_status == ProcessingStatus.INIT:
-            color = "orange"
-            text = "Initializing"
         else:
+            # Technically all cases should be covered above, having this case just in case.
+            logger.warning("Got into a Not Ready state!")
             color = "red"
             text = "Not Ready"
+            self.icon.icon = Image.open(os.path.join(self.base_path, "data", "gray.ico"))
 
         self.status_subframe.configure(fg_color=color)
         self.status_label.configure(text=text)
 
     def save_settings(self, event=None):
+        """save all settings to file if something has changed
+        :return true if something has changed"""
+        pairs = {
+            "OBS_HOST": self.obs_host_entry,
+            "OBS_PORT": self.obs_port_entry,
+            "OBS_PASSWORD": self.obs_password_entry,
+            "LOG_DIR": self.log_directory_entry,
+            "OUTPUT_DIR": self.output_directory_entry,
+            "TIMEOUT": self.timeout_entry,
+            "CONCATENATE_OUTPUTS": self.concatenate_outputs_var,
+            "DELETE_ORIGINALS": self.delete_originals_var
+        }
+
+        # Check if any entry has changed
         has_changed = False
+        for key, entry in pairs.items():
+            if self.settings[key] != entry.get():
+                self.settings[key] = entry.get()
+                has_changed = True
 
-        if self.settings['OBS_HOST'] != self.obs_host_entry.get():
-            self.settings['OBS_HOST'] = self.obs_host_entry.get()
-            has_changed = True
-
-        if self.settings['OBS_PORT'] != self.obs_port_entry.get():
-            self.settings['OBS_PORT'] = self.obs_port_entry.get()
-            has_changed = True
-
-        if self.settings['OBS_PASSWORD'] != self.obs_password_entry.get():
-            self.settings['OBS_PASSWORD'] = self.obs_password_entry.get()
-            has_changed = True
-
-        if self.settings['LOG_DIR'] != self.log_directory_entry.get():
-            self.settings['LOG_DIR'] = self.log_directory_entry.get()
-            has_changed = True
-
-        if self.settings['OUTPUT_DIR'] != self.output_directory_entry.get():
-            self.settings['OUTPUT_DIR'] = self.output_directory_entry.get()
-            has_changed = True
-
-        if self.settings['TIMEOUT'] != self.timeout_entry.get():
-            self.settings['TIMEOUT'] = self.timeout_entry.get()
-            has_changed = True
-
-        if self.settings['CONCATENATE_OUTPUTS'] != self.concatenate_outputs_var.get():
-            self.settings['CONCATENATE_OUTPUTS'] = self.concatenate_outputs_var.get()
-            has_changed = True
-
-        if self.settings['DELETE_ORIGINALS'] != self.delete_originals_var.get():
-            self.settings['DELETE_ORIGINALS'] = self.delete_originals_var.get()
-            has_changed = True
-
+        # Save if anything did change
         if has_changed:
             with open(self.settings_path, 'w') as f:
                 json.dump(self.settings, f, indent=2)
@@ -401,6 +423,7 @@ class FightRecorderApp:
         return has_changed
 
     def exit(self, icon=None):
+        """close all threads and exit the program"""
         logger.info("Exiting...")
 
         # Stop tray icon (if we are given an icon we are in that thread and don't need to join it)
@@ -415,6 +438,7 @@ class FightRecorderApp:
         self.root.destroy()
 
     def minimize_to_tray(self, event=None):
+        """close main window"""
         # Workaround to ensure function is only called once
         if self.is_minimized:
             return
@@ -426,6 +450,7 @@ class FightRecorderApp:
         self.root.withdraw()
 
     def show_from_tray(self, icon=None):
+        """open main window"""
         logger.info("Maximizing from Tray")
 
         # Build main window
@@ -435,6 +460,7 @@ class FightRecorderApp:
         self.root.after(0, self.reset_minimized)
 
     def reset_minimized(self, event=None):
+        """callback function for show_from_tray()"""
         self.is_minimized = False
 
 

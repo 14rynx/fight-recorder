@@ -75,5 +75,4 @@ def processing_thread(replay_path, recording_path, output_path, delete, status_c
 
         status_callback(ProcessingStatusCallback.PROCESSING_ENDED)
     except Exception as e:
-        print(e)
-        status_callback(ProcessingStatusCallback.PROCESSING_ERROR)
+        status_callback((ProcessingStatusCallback.PROCESSING_ERROR, e))

@@ -33,8 +33,7 @@ def run(settings, status_callback, stop_event):
             status_callback=status_callback
         )
     except Exception as e:
-        status_callback(RecordingStatusCallback.RECORDING_ERROR)
-        print(e)
+        status_callback((RecordingStatusCallback.RECORDING_ERROR, e))
         return
     else:
         status_callback(RecordingStatusCallback.RECORDING_READY)
@@ -60,5 +59,4 @@ def run(settings, status_callback, stop_event):
 
             time.sleep(0.3)
     except Exception as e:
-        status_callback(RecordingStatusCallback.RECORDING_ERROR)
-        print(e)
+        status_callback((RecordingStatusCallback.RECORDING_ERROR, e))
