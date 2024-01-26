@@ -1,3 +1,4 @@
+import logging
 import os
 import threading
 import time
@@ -66,7 +67,7 @@ def processing_thread(replay_path, recording_path, output_path, delete, status_c
         # Concatenate video clips
         combined_clip = concatenate_videoclips([replay_buffer_clip, recording_clip])
 
-        combined_clip.write_videofile(output_path, codec="libx264", audio_codec="aac", threads=8)
+        combined_clip.write_videofile(output_path, codec="libx264", audio_codec="aac", threads=8, logger=None)
 
         # Close the video clips
         replay_buffer_clip.close()
