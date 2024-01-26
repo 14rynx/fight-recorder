@@ -98,8 +98,20 @@ class FightRecorderApp:
         # Start working
         self.get_autostart()
         self.start_listener()
+        self.auto_minimize()
+
+    def auto_minimize(self):
+        """check status and automatically minimize as soon as everything is ok"""
+        if len(sys.argv) > 1 and sys.argv[1] in ["-m", "--minimize"]:
+            if self.recording_status is RecordingStatus.READY and self.processing_status is ProcessingStatus.READY:
+                self.minimize_to_tray()
+
+            # Try again later if we did not run into any errors yet
+            elif self.recording_status is RecordingStatus.INIT or self.processing_status is ProcessingStatus.INIT:
+                self.root.after(1000, self.auto_minimize)
 
     def draw_ui(self):
+        """draw the user interface"""
         # OBS Frame
         self.obs_frame = ctk.CTkFrame(master=self.root)
         self.obs_frame.grid(row=0, column=0, padx=10, pady=5, sticky='wnes')
@@ -242,7 +254,6 @@ class FightRecorderApp:
         self.status_label = ctk.CTkLabel(self.status_subframe, text="Initializing")
         self.status_label.grid(row=1, column=0, sticky='e', padx=5, pady=5)
 
-
     def select_log_directory(self):
         """open a file dialog for log directory"""
         directory = ctk.filedialog.askdirectory()
@@ -272,6 +283,7 @@ class FightRecorderApp:
                 shell = win32com.client.Dispatch("WScript.Shell")
                 shortcut = shell.CreateShortCut(self.link_path)
                 shortcut.Targetpath = sys.executable
+                shortcut.Arguments = "--minimize"
                 shortcut.WorkingDirectory = os.path.dirname(sys.executable)
                 shortcut.WindowStyle = 1  # 7 - Minimized, 3 - Maximized, 1 - Normal
                 shortcut.save()
@@ -280,7 +292,7 @@ class FightRecorderApp:
                 # It is ran as a script -> Make a bat file to activate venv and start it
                 main_file = os.path.realpath(__file__)
                 directory = os.path.dirname(main_file)
-                command = f"{directory}\\venv\\Scripts\\activate.bat && cd {directory} && start python {main_file}"
+                command = f"{directory}\\venv\\Scripts\\activate.bat && cd {directory} && start python {main_file} --minimize"
                 with open(self.bat_path, "w+") as bat_file:
                     bat_file.write(command)
 
@@ -466,7 +478,7 @@ class FightRecorderApp:
 
 if __name__ == "__main__":
     ctk.set_appearance_mode("System")
-    ctk.set_default_color_theme("green")
+    ctk.set_default_color_theme("blue")
 
     root = ctk.CTk()
     app = FightRecorderApp(root)
