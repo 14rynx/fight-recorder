@@ -40,7 +40,7 @@ def run(settings, status_callback, stop_event):
 
     try:
         while True:
-            if log_checker.check_interesting():
+            if log_checker.check_files():
                 if timeout_recorder.set_timeout():
                     status_callback(RecordingStatusCallback.RECORDING_STARTED)
 
@@ -57,6 +57,6 @@ def run(settings, status_callback, stop_event):
             if stop_event.is_set():
                 break
 
-            time.sleep(0.3)
+            time.sleep(1)
     except Exception as e:
         status_callback((RecordingStatusCallback.RECORDING_ERROR, e))
