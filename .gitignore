@@ -3,3 +3,4 @@ debug/
 build/
 .idea/
 main.log
+settings.json

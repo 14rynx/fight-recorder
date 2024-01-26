@@ -62,8 +62,18 @@ class FightRecorderApp:
                 self.settings = json.load(f)
             logger.info("loaded settings")
         except FileNotFoundError:
-            self.settings = {}
-            logger.warning("loading settings failed, running empy settings")
+            self.settings = {
+              "OBS_HOST": "localhost",
+              "OBS_PORT": "",
+              "OBS_PASSWORD": "",
+              "OBS_DIRECTORY": "",
+              "TIMEOUT": "60",
+              "CONCATENATE_OUTPUTS": True,
+              "DELETE_ORIGINALS": True,
+              "LOG_DIR": "",
+              "OUTPUT_DIR": ""
+            }
+            logger.warning("loading settings failed, running defaults")
 
         # Draw Main Window
         self.root.title("Fight Recorder")
