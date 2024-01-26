@@ -29,16 +29,19 @@ class VideoProcessing:
         destination_recording = os.path.join(output_dir, f"{output_name}_recording{extension}")
         destination_concatenated = os.path.join(output_dir, f"{output_name}_concatenated{extension}")
 
-        os.rename(replay_path, destination_replay)
-        while True:
-            try:
-                os.rename(recording_path, destination_recording)
-                break
-            except PermissionError:  # File in use by OBS
-                time.sleep(10)
+        if os.path.exists(replay_path):
+            os.rename(replay_path, destination_replay)
+
+        if os.path.exists(recording_path):
+            while True:
+                try:
+                    os.rename(recording_path, destination_recording)
+                    break
+                except PermissionError:  # File still in use by OBS
+                    time.sleep(10)
 
         # Concatenate (and delete if needed)
-        if self.concatenate:
+        if self.concatenate and os.path.exists(destination_replay) and os.path.exists(destination_recording):
             video_processing_thread = threading.Thread(
                 target=processing_thread,
                 args=(
