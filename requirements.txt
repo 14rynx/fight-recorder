@@ -3,3 +3,5 @@ python-dotenv
 MoviePy
 customtkinter
 pywin32
+pystray
+pillow
