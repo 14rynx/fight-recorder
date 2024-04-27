@@ -47,5 +47,5 @@ class TimeoutRecording:
                 pass
             return True
         else:
-            self.end_time = datetime.datetime.now() + datetime.timedelta(seconds=60)
+            self.end_time = datetime.datetime.now() + datetime.timedelta(seconds=self.timeout)
             return False
