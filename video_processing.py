@@ -16,10 +16,13 @@ class ProcessingStatusCallback(Enum):
 
 
 class VideoProcessing:
-    def __init__(self, concatenate, delete, status_callback):
+    def __init__(self, concatenate, delete, status_callback, codec="libx264", audio_codec="aac", threads=8):
         self.concatenate = concatenate
         self.delete = delete
         self.status_callback = status_callback
+        self.codec = codec
+        self.audio_codec = audio_codec
+        self.threads = threads
         self.status_callback(ProcessingStatusCallback.PROCESSING_READY)
 
     def process(self, replay_path, recording_path, output_dir, output_name):
@@ -44,39 +47,37 @@ class VideoProcessing:
         # Concatenate (and delete if needed)
         if self.concatenate and os.path.exists(destination_replay) and os.path.exists(destination_recording):
             video_processing_thread = threading.Thread(
-                target=processing_thread,
+                target=self.processing_thread,
                 args=(
                     destination_replay,
                     destination_recording,
                     destination_concatenated,
-                    self.delete,
-                    self.status_callback
                 )
             )
             video_processing_thread.start()
 
+    def processing_thread(self, replay_path, recording_path, output_path):
+        self.status_callback(ProcessingStatusCallback.PROCESSING_STARTED)
 
-def processing_thread(replay_path, recording_path, output_path, delete, status_callback):
-    status_callback(ProcessingStatusCallback.PROCESSING_STARTED)
+        try:
+            # Load video clips
+            replay_buffer_clip = VideoFileClip(replay_path)
+            recording_clip = VideoFileClip(recording_path)
 
-    try:
-        # Load video clips
-        replay_buffer_clip = VideoFileClip(replay_path)
-        recording_clip = VideoFileClip(recording_path)
+            # Concatenate video clips
+            combined_clip = concatenate_videoclips([replay_buffer_clip, recording_clip])
 
-        # Concatenate video clips
-        combined_clip = concatenate_videoclips([replay_buffer_clip, recording_clip])
+            combined_clip.write_videofile(output_path, codec=self.codec, audio_codec=self.audio_codec,
+                                          threads=self.threads, logger=None)
 
-        combined_clip.write_videofile(output_path, codec="libx264", audio_codec="aac", threads=8, logger=None)
+            # Close the video clips
+            replay_buffer_clip.close()
+            recording_clip.close()
 
-        # Close the video clips
-        replay_buffer_clip.close()
-        recording_clip.close()
+            if self.delete:
+                os.remove(replay_path)
+                os.remove(recording_path)
 
-        if delete:
-            os.remove(replay_path)
-            os.remove(recording_path)
-
-        status_callback(ProcessingStatusCallback.PROCESSING_ENDED)
-    except Exception as e:
-        status_callback((ProcessingStatusCallback.PROCESSING_ERROR, e))
+            self.status_callback(ProcessingStatusCallback.PROCESSING_ENDED)
+        except Exception as e:
+            self.status_callback((ProcessingStatusCallback.PROCESSING_ERROR, e))

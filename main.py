@@ -35,6 +35,21 @@ class ProcessingStatus(Enum):
 
 
 class FightRecorderApp:
+    default_settings = {
+        "OBS_HOST": "localhost",
+        "OBS_PORT": "",
+        "OBS_PASSWORD": "",
+        "OBS_DIRECTORY": "",
+        "TIMEOUT": "60",
+        "CONCATENATE_OUTPUTS": True,
+        "DELETE_ORIGINALS": True,
+        "LOG_DIR": "",
+        "OUTPUT_DIR": "",
+        "CODEC": "libx264",
+        "AUDIO_CODEC": "aac",
+        "THREADS": "8",
+    }
+
     def __init__(self, root):
         self.root = root
 
@@ -62,18 +77,19 @@ class FightRecorderApp:
                 self.settings = json.load(f)
             logger.info("loaded settings")
         except FileNotFoundError:
-            self.settings = {
-              "OBS_HOST": "localhost",
-              "OBS_PORT": "",
-              "OBS_PASSWORD": "",
-              "OBS_DIRECTORY": "",
-              "TIMEOUT": "60",
-              "CONCATENATE_OUTPUTS": True,
-              "DELETE_ORIGINALS": True,
-              "LOG_DIR": "",
-              "OUTPUT_DIR": ""
-            }
+            self.settings = {}
             logger.warning("loading settings failed, running defaults")
+
+        # Write default settings for all keys that do not exist
+        has_changed = False
+        for key, value in self.default_settings.items():
+            if key not in self.settings:
+                self.settings[key] = value
+                has_changed = True
+
+        if has_changed:
+            with open(self.settings_path, 'w') as f:
+                json.dump(self.settings, f, indent=2)
 
         # Draw Main Window
         self.root.title("Fight Recorder")
@@ -415,7 +431,7 @@ class FightRecorderApp:
         self.status_subframe.configure(fg_color=color)
         self.status_label.configure(text=text)
 
-    def save_settings(self, event=None):
+    def save_settings(self, has_changed=False):
         """save all settings to file if something has changed
         :return true if something has changed"""
         pairs = {
@@ -430,7 +446,6 @@ class FightRecorderApp:
         }
 
         # Check if any entry has changed
-        has_changed = False
         for key, entry in pairs.items():
             if self.settings[key] != entry.get():
                 self.settings[key] = entry.get()

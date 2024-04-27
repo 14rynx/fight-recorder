@@ -30,8 +30,12 @@ def run(settings, status_callback, stop_event):
         pp = VideoProcessing(
             concatenate=bool(settings["CONCATENATE_OUTPUTS"]),
             delete=bool(settings["DELETE_ORIGINALS"]),
-            status_callback=status_callback
+            status_callback=status_callback,
+            codec=settings["CODEC"],
+            audio_codec=settings["AUDIO_CODEC"],
+            threads=int(settings["THREADS"])
         )
+
     except Exception as e:
         status_callback((RecordingStatusCallback.RECORDING_ERROR, e))
         return
