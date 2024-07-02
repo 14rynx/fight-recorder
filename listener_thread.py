@@ -1,10 +1,8 @@
 import time
+from enum import Enum
 
-from video_processing import VideoProcessing
 from logreader import LogReader
 from recorder import TimeoutRecording
-
-from enum import Enum
 
 
 class RecordingStatusCallback(Enum):
@@ -14,7 +12,7 @@ class RecordingStatusCallback(Enum):
     RECORDING_ERROR = 4
 
 
-def run(settings, status_callback, stop_event):
+def run(settings, status_callback, stop_event, video_processing_pipeline):
     try:
         log_checker = LogReader(
             settings["LOG_DIR"]
@@ -25,15 +23,6 @@ def run(settings, status_callback, stop_event):
             port=int(settings['OBS_PORT']),
             password=settings['OBS_PASSWORD'],
             timeout=int(settings["TIMEOUT"])
-        )
-
-        pp = VideoProcessing(
-            concatenate=bool(settings["CONCATENATE_OUTPUTS"]),
-            delete=bool(settings["DELETE_ORIGINALS"]),
-            status_callback=status_callback,
-            codec=settings["CODEC"],
-            audio_codec=settings["AUDIO_CODEC"],
-            threads=int(settings["THREADS"])
         )
 
     except Exception as e:
@@ -50,7 +39,7 @@ def run(settings, status_callback, stop_event):
 
             if timeout_recorder.check_timeout():
                 status_callback(RecordingStatusCallback.RECORDING_ENDED)
-                pp.process(
+                video_processing_pipeline.process(
                     timeout_recorder.replay_path,
                     timeout_recorder.recording_path,
                     settings["OUTPUT_DIR"],

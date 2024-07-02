@@ -12,8 +12,7 @@ import win32com.client
 from PIL import Image
 
 from listener_thread import run, RecordingStatusCallback
-
-from video_processing import ProcessingStatusCallback
+from video_processing import ProcessingStatusCallback, VideoProcessingPipeline
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(name)s: %(message)s', filename="main.log")
@@ -181,8 +180,8 @@ class FightRecorderApp:
         self.behaviour_frame_title.grid(row=0, column=0, sticky='w', padx=10, pady=10)
 
         # Timeout
-        self.timeout_label = ctk.CTkLabel(self.behaviour_frame, text="Timeout:")
-        self.timeout_label.grid(row=1, column=0, sticky='e', padx=10, pady=5)
+        self.timeout_label = ctk.CTkLabel(self.behaviour_frame, text="Timeout (seconds):")
+        self.timeout_label.grid(row=1, column=0, sticky='we', padx=10, pady=5)
 
         self.timeout_entry = ctk.CTkEntry(self.behaviour_frame, border_width=0)
         self.timeout_entry.insert(0, self.settings.get('TIMEOUT', ''))
@@ -200,12 +199,19 @@ class FightRecorderApp:
         )
         self.concatenate_outputs_checkbox.grid(row=2, column=0, columnspan=3, sticky='w', padx=10, pady=5)
 
+        self.manual_concatenate = ctk.CTkButton(
+            self.behaviour_frame,
+            text='Manually Concatenate',
+            command=self.run_concatenate
+        )
+        self.manual_concatenate.grid(row=2, column=3, columnspan=2, sticky='e', padx=10, pady=5)
+
         # Delete Originals
         self.delete_originals_var = ctk.BooleanVar()
         self.delete_originals_var.set(self.settings.get('DELETE_ORIGINALS', False))
         self.delete_originals_checkbox = ctk.CTkCheckBox(
             self.behaviour_frame,
-            text="Delete original Videos",
+            text="Delete original Videos after Concatenation",
             variable=self.delete_originals_var,
             command=self.save_and_run
         )
@@ -342,6 +348,15 @@ class FightRecorderApp:
         if self.recording_status == RecordingStatus.RECORDING:
             return
 
+        self.video_processing_pipeline = VideoProcessingPipeline(
+            auto_concatenate=bool(self.settings["CONCATENATE_OUTPUTS"]),
+            delete=bool(self.settings["DELETE_ORIGINALS"]),
+            status_callback=self.status_callback,
+            codec=self.settings["CODEC"],
+            audio_codec=self.settings["AUDIO_CODEC"],
+            threads=int(self.settings["THREADS"])
+        )
+
         # Try to stop previous thread
         if self.listener_thread:
             self.stop_event.set()
@@ -354,10 +369,14 @@ class FightRecorderApp:
             args=(
                 self.settings,
                 self.status_callback,
-                self.stop_event
+                self.stop_event,
+                self.video_processing_pipeline
             )
         )
         self.listener_thread.start()
+
+    def run_concatenate(self, event=None):
+        self.video_processing_pipeline.concatenate_candidates_in_thread()
 
     def status_callback(self, message):
         """update the internal status based on a status message and update ui"""
