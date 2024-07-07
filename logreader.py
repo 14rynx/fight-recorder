@@ -9,7 +9,7 @@ class LogReader:
     def __init__(self, directory):
         self.directory = directory
 
-        self.regex = re.compile('\(combat\)')
+        self.regex = re.compile(r'\(combat\)|has applied bonuses to')
 
         # Figure out current file state
         self.observed_files = {}
