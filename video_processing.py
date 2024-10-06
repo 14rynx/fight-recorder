@@ -39,12 +39,17 @@ class ProcessingElement:
 
 
 class VideoProcessingPipeline:
-    def __init__(self, auto_concatenate, delete, status_callback, codec="libx264", audio_codec="aac", threads=8):
+    def __init__(self, auto_concatenate, delete, status_callback, codec="hevc_nvenc", audio_codec="aac",
+                 ffmpeg_options=None, threads=8):
         self.auto_concatenate = auto_concatenate
         self.delete = delete
         self.status_callback = status_callback
         self.codec = codec
         self.audio_codec = audio_codec
+        if ffmpeg_options is None:
+            self.ffmpeg_options = ['-c:v', 'hevc_nvenc', '-rc', 'constqp', '-qp', '16']
+        else:
+            self.ffmpeg_options = ffmpeg_options
         self.threads = threads
 
         self.concatenate_candidate_elements = []
@@ -89,9 +94,14 @@ class VideoProcessingPipeline:
                 # Concatenate video clips
                 combined_clip = concatenate_videoclips([replay_buffer_clip, recording_clip])
 
-                combined_clip.write_videofile(video_element.concatenated_destination, codec=self.codec,
-                                              audio_codec=self.audio_codec,
-                                              threads=self.threads, logger=None)
+                combined_clip.write_videofile(
+                    video_element.concatenated_destination,
+                    codec=self.codec,
+                    audio_codec=self.audio_codec,
+                    ffmpeg_params=self.ffmpeg_options,
+                    threads=self.threads,
+                    logger=None
+                )
 
                 # Close the video clips
                 replay_buffer_clip.close()

@@ -44,9 +44,12 @@ class FightRecorderApp:
         "DELETE_ORIGINALS": True,
         "LOG_DIR": "",
         "OUTPUT_DIR": "",
-        "CODEC": "libx264",
+        "CODEC": "hevc_nvenc",
         "AUDIO_CODEC": "aac",
         "THREADS": "8",
+        "FFMPEG_PARAMS": [
+            "-c:v", "hevc_nvenc", "-rc", "constqp", "-qp", "16"
+        ]
     }
 
     def __init__(self, root):
@@ -354,6 +357,7 @@ class FightRecorderApp:
             status_callback=self.status_callback,
             codec=self.settings["CODEC"],
             audio_codec=self.settings["AUDIO_CODEC"],
+            ffmpeg_options=self.settings["FFMPEG_PARAMS"],
             threads=int(self.settings["THREADS"])
         )
 
