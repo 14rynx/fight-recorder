@@ -3,7 +3,7 @@ import threading
 import time
 from enum import Enum
 
-from moviepy.editor import VideoFileClip, concatenate_videoclips
+import ffmpeg
 
 
 class ProcessingStatusCallback(Enum):
@@ -27,30 +27,22 @@ class ProcessingElement:
 
     @property
     def replay_destination(self):
-        return os.path.join(self.output_dir, f"{self.output_name}_replay{self.extension}")
+        return os.path.join(self.output_dir, f"{self.output_name}_replay{self.extension}").replace("\\","/")
 
     @property
     def recording_destination(self):
-        return os.path.join(self.output_dir, f"{self.output_name}_recording{self.extension}")
+        return os.path.join(self.output_dir, f"{self.output_name}_recording{self.extension}").replace("\\","/")
 
     @property
     def concatenated_destination(self):
-        return os.path.join(self.output_dir, f"{self.output_name}_concatenated{self.extension}")
+        return os.path.join(self.output_dir, f"{self.output_name}_concatenated{self.extension}").replace("\\","/")
 
 
 class VideoProcessingPipeline:
-    def __init__(self, auto_concatenate, delete, status_callback, codec="hevc_nvenc", audio_codec="aac",
-                 ffmpeg_options=None, threads=8):
+    def __init__(self, auto_concatenate, delete, status_callback, **kwargs):
         self.auto_concatenate = auto_concatenate
         self.delete = delete
         self.status_callback = status_callback
-        self.codec = codec
-        self.audio_codec = audio_codec
-        if ffmpeg_options is None:
-            self.ffmpeg_options = ['-c:v', 'hevc_nvenc', '-rc', 'constqp', '-qp', '16']
-        else:
-            self.ffmpeg_options = ffmpeg_options
-        self.threads = threads
 
         self.concatenate_candidate_elements = []
         self.status_callback(ProcessingStatusCallback.PROCESSING_READY)
@@ -87,25 +79,16 @@ class VideoProcessingPipeline:
             self.status_callback(ProcessingStatusCallback.PROCESSING_STARTED)
 
             try:
-                # Load video clips
-                replay_buffer_clip = VideoFileClip(video_element.replay_destination)
-                recording_clip = VideoFileClip(video_element.recording_destination)
 
-                # Concatenate video clips
-                combined_clip = concatenate_videoclips([replay_buffer_clip, recording_clip])
+                with open('concat.txt', 'w') as concat_file:
+                    concat_file.writelines([
+                        f"file {video_element.replay_destination}\n",
+                        f"file {video_element.recording_destination}"
+                    ])
 
-                combined_clip.write_videofile(
-                    video_element.concatenated_destination,
-                    codec=self.codec,
-                    audio_codec=self.audio_codec,
-                    ffmpeg_params=self.ffmpeg_options,
-                    threads=self.threads,
-                    logger=None
-                )
+                ffmpeg.input('concat.txt', format='concat', safe=0, loglevel="quiet").output(video_element.concatenated_destination, c='copy').run()
 
-                # Close the video clips
-                replay_buffer_clip.close()
-                recording_clip.close()
+                os.remove("concat.txt")
 
                 if self.delete:
                     os.remove(video_element.replay_destination)

@@ -1,7 +1,7 @@
 obsws-python
 python-dotenv
-MoviePy
 customtkinter
 pywin32
 pystray
 pillow
+git+https://github.com/amamic1803/ffmpeg-python.git@fc559e28626baac0f322d15f88db46dcaef52f44

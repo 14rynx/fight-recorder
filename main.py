@@ -4,6 +4,8 @@ import logging
 import os
 import sys
 import threading
+import urllib.request
+import zipfile
 from enum import Enum
 
 import customtkinter as ctk
@@ -43,13 +45,7 @@ class FightRecorderApp:
         "CONCATENATE_OUTPUTS": True,
         "DELETE_ORIGINALS": True,
         "LOG_DIR": "",
-        "OUTPUT_DIR": "",
-        "CODEC": "hevc_nvenc",
-        "AUDIO_CODEC": "aac",
-        "THREADS": "8",
-        "FFMPEG_PARAMS": [
-            "-c:v", "hevc_nvenc", "-rc", "constqp", "-qp", "16"
-        ]
+        "OUTPUT_DIR": ""
     }
 
     def __init__(self, root):
@@ -77,10 +73,10 @@ class FightRecorderApp:
         try:
             with open(self.settings_path, 'r') as f:
                 self.settings = json.load(f)
-            logger.info("loaded settings")
+            logger.info("Loaded settings.")
         except FileNotFoundError:
             self.settings = {}
-            logger.warning("loading settings failed, running defaults")
+            logger.warning("Loading settings failed, running defaults.")
 
         # Write default settings for all keys that do not exist
         has_changed = False
@@ -88,6 +84,9 @@ class FightRecorderApp:
             if key not in self.settings:
                 self.settings[key] = value
                 has_changed = True
+
+        # Download Ffmpeg if required
+        self.check_ffmpeg()
 
         if has_changed:
             with open(self.settings_path, 'w') as f:
@@ -338,6 +337,28 @@ class FightRecorderApp:
             with contextlib.suppress(FileNotFoundError):
                 os.remove(self.bat_path)
 
+    def check_ffmpeg(self):
+        """Check if ffmpeg.exe exists and download it if not"""
+
+        ffmpeg_url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2024-10-06-19-32/ffmpeg-n7.1-7-g63f5c007a7-win64-gpl-7.1.zip"
+
+        if not os.path.exists("ffmpeg.exe"):
+            logger.info(f"ffmpeg.exe not found. Downloading and extracting...")
+
+            urllib.request.urlretrieve(ffmpeg_url, "ffmpeg.zip")
+
+            with zipfile.ZipFile("ffmpeg.zip", 'r') as zip_ref:
+                for file in zip_ref.infolist():
+                    if file.filename.endswith('/bin/ffmpeg.exe'):
+                        file.filename = "ffmpeg.exe"
+                        zip_ref.extract(file, os.getcwd())
+
+            os.remove("ffmpeg.zip")
+
+            logger.info(f"Downloaded ffmpeg successfully.")
+        else:
+            logger.info(f"Ffmpeg already exists.")
+
     def save_and_run(self, event=None):
         """save settings and start / restart listener if needed"""
         changed = self.save_settings()
@@ -346,7 +367,7 @@ class FightRecorderApp:
 
     def start_listener(self, event=None):
         """start the thread listening to logfiles and starting recordings"""
-        logger.info("(re)started listener")
+        logger.info("(Re)started listener.")
         # Make sure to not kill running recording
         if self.recording_status == RecordingStatus.RECORDING:
             return
@@ -354,11 +375,7 @@ class FightRecorderApp:
         self.video_processing_pipeline = VideoProcessingPipeline(
             auto_concatenate=bool(self.settings["CONCATENATE_OUTPUTS"]),
             delete=bool(self.settings["DELETE_ORIGINALS"]),
-            status_callback=self.status_callback,
-            codec=self.settings["CODEC"],
-            audio_codec=self.settings["AUDIO_CODEC"],
-            ffmpeg_options=self.settings["FFMPEG_PARAMS"],
-            threads=int(self.settings["THREADS"])
+            status_callback=self.status_callback
         )
 
         # Try to stop previous thread
@@ -384,7 +401,18 @@ class FightRecorderApp:
 
     def status_callback(self, message):
         """update the internal status based on a status message and update ui"""
-        logger.info(f"Got status message {message}")
+
+        # Do logging
+        if type(message) is tuple and (message[0] == ProcessingStatusCallback.PROCESSING_ERROR or message[
+            0] == RecordingStatusCallback.RECORDING_ERROR):
+            try:
+                logger.error(f"Got error status message: {message}", exc_info=message[1])
+            except Exception:
+                logger.error(f"Got error status message, error could not be parsed: {message}", exc_info=True)
+        elif message == ProcessingStatusCallback.PROCESSING_ERROR or message == RecordingStatusCallback.RECORDING_ERROR:
+            logger.error(f"Got error status message {message} (without more details).")
+        else:
+            logger.info(f"Got status message: {message}.")
 
         # Parse error message into internal state
         if message == RecordingStatusCallback.RECORDING_READY:
