@@ -340,7 +340,7 @@ class FightRecorderApp:
     def check_ffmpeg(self):
         """Check if ffmpeg.exe exists and download it if not"""
 
-        ffmpeg_url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2024-10-06-19-32/ffmpeg-n7.1-7-g63f5c007a7-win64-gpl-7.1.zip"
+        ffmpeg_url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2024-09-30-15-36/ffmpeg-n7.1-win64-gpl-7.1.zip"
 
         if not os.path.exists("ffmpeg.exe"):
             logger.info(f"ffmpeg.exe not found. Downloading and extracting...")
