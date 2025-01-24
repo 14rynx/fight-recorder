@@ -2,9 +2,8 @@ import os
 import threading
 import time
 from enum import Enum
-
-import ffmpeg
-
+import subprocess
+import sys
 
 class ProcessingStatusCallback(Enum):
     PROCESSING_READY = 1
@@ -86,7 +85,31 @@ class VideoProcessingPipeline:
                         f"file {video_element.recording_destination}"
                     ])
 
-                ffmpeg.input('concat.txt', format='concat', safe=0, loglevel="quiet").output(video_element.concatenated_destination, c='copy').run()
+                command = [
+                    "ffmpeg",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", "concat.txt",
+                    "-c", "copy",
+                    video_element.concatenated_destination
+                ]
+
+                creation_flags = 0
+                if sys.platform == "win32":
+                    creation_flags = subprocess.CREATE_NO_WINDOW
+
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    creationflags=creation_flags
+                )
+
+                _, stderr = process.communicate()
+                if process.returncode != 0:
+                    self.status_callback((ProcessingStatusCallback.PROCESSING_ERROR, stderr))
+                    return
 
                 os.remove("concat.txt")
 
