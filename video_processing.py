@@ -81,8 +81,8 @@ class VideoProcessingPipeline:
 
                 with open('concat.txt', 'w') as concat_file:
                     concat_file.writelines([
-                        f"file {video_element.replay_destination}\n",
-                        f"file {video_element.recording_destination}"
+                        f"file '{video_element.replay_destination}'\n",
+                        f"file '{video_element.recording_destination}'"
                     ])
 
                 command = [
