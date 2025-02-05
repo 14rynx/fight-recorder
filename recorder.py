@@ -1,16 +1,14 @@
 import datetime
-import logging
 
 import obsws_python as obs
 
-logger = logging.getLogger("main")
-
 
 class TimeoutRecording:
-    def __init__(self, host, port, password, timeout=60):
+    def __init__(self, host, port, password, logger, timeout=60):
         self.ws = obs.ReqClient(host=host, port=port, password=password, timeout=3)
         self.start_time = None
         self.end_time = None
+        self.logger = logger
         self.timeout = timeout
 
         # Register callback to get information on the current recording path
@@ -46,7 +44,7 @@ class TimeoutRecording:
                 self.end_time = datetime.datetime.now() + datetime.timedelta(seconds=self.timeout)
                 self.start_time = datetime.datetime.now()
             except obs.error.OBSSDKRequestError:
-                logger.error("Got an error while trying to start recording", exc_info=True)
+                self.logger.error("Got an error while trying to start recording", exc_info=True)
                 # OBS is already recording -> do nothing
                 pass
             return True

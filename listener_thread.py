@@ -12,7 +12,7 @@ class RecordingStatusCallback(Enum):
     RECORDING_ERROR = 4
 
 
-def run(settings, status_callback, stop_event, video_processing_pipeline):
+def run(settings, status_callback, stop_event, video_processing_pipeline, logger):
     try:
         log_checker = LogReader(
             settings["LOG_DIR"]
@@ -22,6 +22,7 @@ def run(settings, status_callback, stop_event, video_processing_pipeline):
             host=settings['OBS_HOST'],
             port=int(settings['OBS_PORT']),
             password=settings['OBS_PASSWORD'],
+            logger=logger,
             timeout=int(settings["TIMEOUT"])
         )
 

@@ -391,7 +391,8 @@ class FightRecorderApp:
                 self.settings,
                 self.status_callback,
                 self.stop_event,
-                self.video_processing_pipeline
+                self.video_processing_pipeline,
+                logger
             )
         )
         self.listener_thread.start()
