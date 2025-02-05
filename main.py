@@ -16,10 +16,6 @@ from PIL import Image
 from listener_thread import run, RecordingStatusCallback
 from video_processing import ProcessingStatusCallback, VideoProcessingPipeline
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(name)s: %(message)s', filename="main.log")
-logger = logging.getLogger("main")
-
 
 class RecordingStatus(Enum):
     INIT = 1
@@ -53,30 +49,39 @@ class FightRecorderApp:
 
         # Figure out if packaged exe or not
         self.packaged = getattr(sys, 'frozen', False)
-        logger.info(f"App is packaged {self.packaged}")
 
-        # Setup required paths
-        self.settings_path = 'settings.json'
+        # Figure out base path for resources
+        if self.packaged:
+            self.base_path = sys._MEIPASS
+            self.files_path = os.path.dirname(sys.executable)
+        else:
+            self.base_path = os.path.abspath(".")
+            self.files_path = os.path.dirname(__file__)
+
+        # Setup logging
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s:%(levelname)s:%(name)s: %(message)s',
+                            filename=os.path.join(self.files_path, "main.log"))
+        self.logger = logging.getLogger("main")
+
+        self.logger.info(f"App is packaged {self.packaged}")
 
         # Figure out path for persistency script
         link_dir = f"{os.environ['APPDATA']}\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
         self.link_path = os.path.join(link_dir, "Fight_Recorder.lnk")
         self.bat_path = os.path.join(link_dir, "Fight_Recorder.bat")
 
-        # Figure out base path for resources
-        if self.packaged:
-            self.base_path = sys._MEIPASS
-        else:
-            self.base_path = os.path.abspath(".")
+        # Setup required paths
+        self.settings_path = os.path.join(self.files_path, 'settings.json')
+        self.ffmpeg_path = os.path.join(self.files_path, 'ffmpeg.exe')
 
         # Load Settings
         try:
             with open(self.settings_path, 'r') as f:
                 self.settings = json.load(f)
-            logger.info("Loaded settings.")
+            self.logger.info("Loaded settings.")
         except FileNotFoundError:
             self.settings = {}
-            logger.warning("Loading settings failed, running defaults.")
+            self.logger.warning("Loading settings failed, running defaults.")
 
         # Write default settings for all keys that do not exist
         has_changed = False
@@ -342,8 +347,8 @@ class FightRecorderApp:
 
         ffmpeg_url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2024-09-30-15-36/ffmpeg-n7.1-win64-gpl-7.1.zip"
 
-        if not os.path.exists("ffmpeg.exe"):
-            logger.info(f"ffmpeg.exe not found. Downloading and extracting...")
+        if not os.path.exists(self.ffmpeg_path):
+            self.logger.info(f"ffmpeg.exe not found. Downloading and extracting...")
 
             urllib.request.urlretrieve(ffmpeg_url, "ffmpeg.zip")
 
@@ -351,13 +356,13 @@ class FightRecorderApp:
                 for file in zip_ref.infolist():
                     if file.filename.endswith('/bin/ffmpeg.exe'):
                         file.filename = "ffmpeg.exe"
-                        zip_ref.extract(file, os.getcwd())
+                        zip_ref.extract(file, self.ffmpeg_path)
 
             os.remove("ffmpeg.zip")
 
-            logger.info(f"Downloaded ffmpeg successfully.")
+            self.logger.info(f"Downloaded ffmpeg successfully.")
         else:
-            logger.info(f"Ffmpeg already exists.")
+            self.logger.info(f"Ffmpeg already exists.")
 
     def save_and_run(self, event=None):
         """save settings and start / restart listener if needed"""
@@ -367,7 +372,7 @@ class FightRecorderApp:
 
     def start_listener(self, event=None):
         """start the thread listening to logfiles and starting recordings"""
-        logger.info("(Re)started listener.")
+        self.logger.info("(Re)started listener.")
         # Make sure to not kill running recording
         if self.recording_status == RecordingStatus.RECORDING:
             return
@@ -375,7 +380,9 @@ class FightRecorderApp:
         self.video_processing_pipeline = VideoProcessingPipeline(
             auto_concatenate=bool(self.settings["CONCATENATE_OUTPUTS"]),
             delete=bool(self.settings["DELETE_ORIGINALS"]),
-            status_callback=self.status_callback
+            status_callback=self.status_callback,
+            logger=self.logger,
+            files_path=self.files_path
         )
 
         # Try to stop previous thread
@@ -392,7 +399,7 @@ class FightRecorderApp:
                 self.status_callback,
                 self.stop_event,
                 self.video_processing_pipeline,
-                logger
+                self.logger
             )
         )
         self.listener_thread.start()
@@ -407,13 +414,13 @@ class FightRecorderApp:
         if type(message) is tuple and (message[0] == ProcessingStatusCallback.PROCESSING_ERROR or message[
             0] == RecordingStatusCallback.RECORDING_ERROR):
             try:
-                logger.error(f"Got error status message: {message}", exc_info=message[1])
+                self.logger.error(f"Got error status message: {message}", exc_info=message[1])
             except Exception:
-                logger.error(f"Got error status message, error could not be parsed: {message}", exc_info=True)
+                self.logger.error(f"Got error status message, error could not be parsed: {message}", exc_info=True)
         elif message == ProcessingStatusCallback.PROCESSING_ERROR or message == RecordingStatusCallback.RECORDING_ERROR:
-            logger.error(f"Got error status message {message} (without more details).")
+            self.logger.error(f"Got error status message {message} (without more details).")
         else:
-            logger.info(f"Got status message: {message}.")
+            self.logger.info(f"Got status message: {message}.")
 
         # Parse error message into internal state
         if message == RecordingStatusCallback.RECORDING_READY:
@@ -475,7 +482,7 @@ class FightRecorderApp:
 
         else:
             # Technically all cases should be covered above, having this case just in case.
-            logger.warning("Got into a Not Ready state!")
+            self.logger.warning("Got into a Not Ready state!")
             color = "red"
             text = "Not Ready"
             self.icon.icon = Image.open(os.path.join(self.base_path, "data", "gray.ico"))
@@ -507,13 +514,13 @@ class FightRecorderApp:
         if has_changed:
             with open(self.settings_path, 'w') as f:
                 json.dump(self.settings, f, indent=2)
-            logger.info("Saved Settings")
+            self.logger.info("Saved Settings")
 
         return has_changed
 
     def exit(self, icon=None):
         """close all threads and exit the program"""
-        logger.info("Exiting...")
+        self.logger.info("Exiting...")
 
         # Stop tray icon (if we are given an icon we are in that thread and don't need to join it)
         self.icon.stop()
@@ -533,14 +540,14 @@ class FightRecorderApp:
             return
         self.is_minimized = True
 
-        logger.info("Minimizing to Tray")
+        self.logger.info("Minimizing to Tray")
 
         # Clear main window
         self.root.withdraw()
 
     def show_from_tray(self, icon=None):
         """open main window"""
-        logger.info("Maximizing from Tray")
+        self.logger.info("Maximizing from Tray")
 
         # Build main window
         self.root.deiconify()

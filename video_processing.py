@@ -38,10 +38,12 @@ class ProcessingElement:
 
 
 class VideoProcessingPipeline:
-    def __init__(self, auto_concatenate, delete, status_callback, **kwargs):
+    def __init__(self, auto_concatenate, delete, status_callback, logger, files_path, **kwargs):
         self.auto_concatenate = auto_concatenate
         self.delete = delete
         self.status_callback = status_callback
+        self.logger = logger
+        self.files_path = files_path
 
         self.concatenate_candidate_elements = []
         self.status_callback(ProcessingStatusCallback.PROCESSING_READY)
@@ -77,9 +79,10 @@ class VideoProcessingPipeline:
         if os.path.exists(video_element.replay_destination) and os.path.exists(video_element.recording_destination):
             self.status_callback(ProcessingStatusCallback.PROCESSING_STARTED)
 
-            try:
+            concat_directory = os.path.join(self.files_path, "concat.txt")
 
-                with open('concat.txt', 'w') as concat_file:
+            try:
+                with open(concat_directory, 'w') as concat_file:
                     concat_file.writelines([
                         f"file '{video_element.replay_destination}'\n",
                         f"file '{video_element.recording_destination}'"
@@ -89,7 +92,7 @@ class VideoProcessingPipeline:
                     "ffmpeg",
                     "-f", "concat",
                     "-safe", "0",
-                    "-i", "concat.txt",
+                    "-i", concat_directory,
                     "-c", "copy",
                     video_element.concatenated_destination
                 ]
@@ -111,7 +114,7 @@ class VideoProcessingPipeline:
                     self.status_callback((ProcessingStatusCallback.PROCESSING_ERROR, stderr))
                     return
 
-                os.remove("concat.txt")
+                os.remove(concat_directory)
 
                 if self.delete:
                     os.remove(video_element.replay_destination)
@@ -120,6 +123,9 @@ class VideoProcessingPipeline:
                 self.status_callback(ProcessingStatusCallback.PROCESSING_ENDED)
             except Exception as e:
                 self.status_callback((ProcessingStatusCallback.PROCESSING_ERROR, e))
+        else:
+            self.logger.warning("Could not start processing because files did not exist")
+
 
     def concatenate_in_thread(self, video_element):
         video_processing_thread = threading.Thread(target=self.concatenate, args=(video_element,))
