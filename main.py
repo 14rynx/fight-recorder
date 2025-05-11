@@ -15,7 +15,7 @@ from PIL import Image
 
 from listener_thread import run, RecordingStatusCallback
 from video_processing import ProcessingStatusCallback, VideoProcessingPipeline
-
+from video_combine import combine_in_thread
 
 class RecordingStatus(Enum):
     INIT = 1
@@ -240,6 +240,14 @@ class FightRecorderApp:
         )
         self.run_on_startup_checkbox.grid(row=4, column=0, columnspan=3, sticky='w', padx=10, pady=5)
 
+        #Extra Button with wired location atm
+        self.combine_clips = ctk.CTkButton(
+            self.behaviour_frame,
+            text='Combine Clips',
+            command=self.run_combine
+        )
+        self.combine_clips.grid(row=3, column=3, columnspan=2, sticky='e', padx=10, pady=5)
+
         # ---------------------------------------------------------------------
         # Directories Frame
         self.directory_frame = ctk.CTkFrame(master=self.root)
@@ -411,6 +419,9 @@ class FightRecorderApp:
 
     def run_concatenate(self, event=None):
         self.video_processing_pipeline.concatenate_candidates_in_thread()
+
+    def run_combine(self, event=None):
+        combine_in_thread()
 
     def status_callback(self, message):
         """update the internal status based on a status message and update ui"""
