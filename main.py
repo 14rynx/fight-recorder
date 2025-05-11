@@ -130,17 +130,22 @@ class FightRecorderApp:
         # Start working
         self.get_autostart()
         self.start_listener()
+
+        self.auto_minimize_times = 0
         self.auto_minimize()
 
     def auto_minimize(self):
         """check status and automatically minimize as soon as everything is ok"""
+        self.auto_minimize_times += 1
+
         if len(sys.argv) > 1 and sys.argv[1] in ["-m", "--minimize"]:
             if self.recording_status is RecordingStatus.READY and self.processing_status is ProcessingStatus.READY:
                 self.minimize_to_tray()
 
-            # Try again later if we did not run into any errors yet
-            elif self.recording_status is RecordingStatus.INIT or self.processing_status is ProcessingStatus.INIT:
-                self.root.after(1000, self.auto_minimize)
+            # Try again later if we did not run into any errors yet, up to 60 times
+            else:
+                if self.auto_minimize_times < 60:
+                    self.root.after(1000, self.auto_minimize)
 
     def draw_ui(self):
         """draw the user interface"""
@@ -444,6 +449,11 @@ class FightRecorderApp:
             self.error_message = message[1:]
 
         self.display_status()
+
+        # Automatically retry after 2 seconds if it failed
+        if self.recording_status == RecordingStatus.ERROR:
+            self.root.after(2000, self.start_listener)
+
 
     def display_status(self):
         """look at the internal status and update ui accordingly"""
