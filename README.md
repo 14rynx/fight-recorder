@@ -1,3 +1,8 @@
+> [!CAUTION]
+There is now a direct OBS-Plugin for the same thing.
+It is much easier to use:
+ https://github.com/JesseSwale/obs-fightrecorder
+
 # Fight Recorder
 
 A simple utility that reads eve logs and based on them starts / ends OBS recordings and downloads the replay buffer.
